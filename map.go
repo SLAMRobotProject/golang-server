@@ -58,7 +58,7 @@ func thread_backend(
 			} else {
 				//log
 				if msg.x != 0 || msg.y != 0 || msg.theta != 0 {
-					position_logger.Printf("%d %d %d %d\n", msg.id, msg.x, msg.y, msg.theta)
+					position_logger.Printf("%d %d %d %d\n", msg.id, backend.multi_robot[backend.id2index[msg.id]].x, backend.multi_robot[backend.id2index[msg.id]].y, backend.multi_robot[backend.id2index[msg.id]].theta)
 				}
 				//map update
 				backend.add_irSensorData(msg.id, msg.ir1x, msg.ir1y)
@@ -87,7 +87,7 @@ func (b *Backend) add_irSensorData(id, irX, irY int) {
 }
 
 func (b *Backend) irSensor_scaleRotateTranselate(id, x_bodyFrame, y_bodyFrame int) (int, int) {
-	// IR data is given in mm and it is relative to the body, so it must be rotated in order to draw correctly on the map
+	// IR data is given in mm and it is relative to the body, so it must be scaled, rotated and transelated to the map.
 
 	theta_rad := float64(b.multi_robot[b.id2index[id]].theta) * math.Pi / 180
 	//rotate
@@ -116,11 +116,10 @@ func bresenham_algorithm(x0, y0, x1, y1 int) [][]int {
 	}
 
 	err := dx + dy
-	points := make([][]int, 2)
+	points := make([][]int, 0)
 
 	for {
-		points[0] = append(points[0], x0)
-		points[1] = append(points[1], y0)
+		points = append(points, []int{x0, y0})
 		if x0 == x1 && y0 == y1 {
 			break
 		}
@@ -168,9 +167,9 @@ func (b *Backend) add_line(id, x1, y1 int) {
 	y0 = min(max(y0, 0), map_size-1)
 
 	points := bresenham_algorithm(x0, y0, x1, y1)
-	for i := 0; i < len(points[0]); i++ {
-		x := points[0][i]
-		y := points[1][i]
+	for i := 0; i < len(points); i++ {
+		x := points[i][0]
+		y := points[i][1]
 		b.Map[x][y] = map_open
 		//fmt.Println("Open map at: ", x, y)
 	}
