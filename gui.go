@@ -154,7 +154,7 @@ func redraw_map(map_image *image.RGBA, Map [map_size][map_size]uint8) {
 
 func init_input_init(ch_robotBackendInit, ch_robotGuiInit chan<- [4]int, id int) *container.AppTabs {
 	tabs := container.NewAppTabs(
-		container.NewTabItem("NRF-"+strconv.Itoa(id), init_input_tabInit(ch_robotBackendInit, ch_robotGuiInit, id)),
+	//container.NewTabItem("NRF-"+strconv.Itoa(id), init_input_tabInit(ch_robotBackendInit, ch_robotGuiInit, id)),
 	)
 	return tabs
 }
@@ -208,9 +208,9 @@ func automatic_input_init(ch_publish chan<- [3]int) *fyne.Container {
 }
 
 func manual_input_init(ch_robotInit chan<- [3]int) *container.AppTabs {
-	id := 2
+	//id := 2
 	tabs := container.NewAppTabs(
-		container.NewTabItem("NRF-"+strconv.Itoa(id), manual_input_tabInit(ch_robotInit, id)),
+	//container.NewTabItem("NRF-"+strconv.Itoa(id), manual_input_tabInit(ch_robotInit, id)),
 	)
 	return tabs
 }
@@ -227,7 +227,7 @@ func manual_input_tabInit(ch_publish chan<- [3]int, id int) *fyne.Container {
 		//TODO: fix id
 		if errX == nil && errY == nil {
 			//convert to mm because robot uses mm, and divide by two bacause robot multiplies by two
-			ch_publish <- [3]int{id, x * 10 / 2, y * 10 / 2}
+			ch_publish <- [3]int{id, x * 10, y * 10}
 		} else {
 			//TODO: kanskje dette burde logges
 			println("Invalid input")
