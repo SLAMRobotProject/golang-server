@@ -169,7 +169,7 @@ func init_input_tabInit(ch_robotBackendInit, ch_robotGuiInit chan<- [4]int, id i
 	input_theta := widget.NewEntry()
 	input_theta.SetPlaceHolder("theta [degrees]")
 
-	init_container := container.NewVBox(input_x, input_y, input_theta, widget.NewButton("Initialize", func() {
+	input_button := widget.NewButton("Initialize", func() {
 		//log.Println("Content was:", input_x.Text, ", ", input_y.Text)
 		x, errX := strconv.Atoi(input_x.Text)
 		y, errY := strconv.Atoi(input_y.Text)
@@ -182,7 +182,16 @@ func init_input_tabInit(ch_robotBackendInit, ch_robotGuiInit chan<- [4]int, id i
 			//TODO: kanskje dette burde logges
 			println("Invalid input")
 		}
-	}))
+	})
+
+	default_button := widget.NewButton("Initialize", func() {
+		x, y, theta := 0, 0, 0
+		ch_robotBackendInit <- [4]int{id, x, y, theta}
+		ch_robotGuiInit <- [4]int{id, x, y, theta}
+
+	})
+
+	init_container := container.NewVBox(input_x, input_y, input_theta, input_button, default_button)
 	return init_container
 }
 
