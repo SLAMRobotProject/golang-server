@@ -46,7 +46,7 @@ func gui_init(
 	ch_receive <-chan adv_msg,
 	ch_robotBackendInit chan<- [4]int,
 	ch_robotGuiInit chan<- [4]int,
-) (fyne.Window, *image.RGBA, *multiRobotHandle, *container.AppTabs, *container.AppTabs) {
+) (fyne.Window, *image.RGBA, *canvas.Image, *multiRobotHandle, *container.AppTabs, *container.AppTabs) {
 
 	a := app.New()
 	w := a.NewWindow("Canvas")
@@ -90,11 +90,12 @@ func gui_init(
 
 	w.SetContent(grid)
 
-	return w, map_image, multi_robot_handle, manual_input, init_input
+	return w, map_image, map_canvas, multi_robot_handle, manual_input, init_input
 }
 
 func thread_guiUpdate(
 	map_image *image.RGBA,
+	map_canvas *canvas.Image,
 	multi_robot_handle *multiRobotHandle,
 	manual_input *container.AppTabs,
 	init_input *container.AppTabs,
@@ -109,6 +110,7 @@ func thread_guiUpdate(
 		select {
 		case <-ch_fps:
 			redraw_map(map_image, backend.Map)
+			map_canvas.Refresh()
 			redraw_robots(multi_robot_handle, backend.multi_robot)
 		case id_pending := <-ch_robotPending:
 			pending_id2index[id_pending] = len(backend.multi_robot)
@@ -136,10 +138,8 @@ func redraw_robots(multi_robot_handle *multiRobotHandle, multi_robot []Robot) {
 }
 
 func redraw_map(map_image *image.RGBA, Map [map_size][map_size]uint8) {
-	//for x := 0; x < map_size; x++ {
-	for x := 150; x < 250; x++ {
-		//for y := 0; y < map_size; y++ {
-		for y := 150; y < 250; y++ {
+	for x := 0; x < map_size; x++ {
+		for y := 0; y < map_size; y++ {
 			switch Map[x][y] {
 			case map_unknown:
 				map_image.Set(x, y, GRAY)

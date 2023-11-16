@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	"testing"
 )
 
@@ -52,4 +53,60 @@ func Test__bresenham_algorithm(t *testing.T) {
 
 	known_points = [][]int{{0, 0}, {-1, 1}, {-2, 1}, {-3, 2}, {-4, 2}, {-5, 3}}
 	baseTest__bresenham_algorithm(t, known_points, 0, 0, -5, 3)
+}
+
+func Test__add_line(t *testing.T) {
+	b := NewBackend()
+	id := 2
+	b.id2index[id] = len(backend.multi_robot)
+	b.multi_robot = append(backend.multi_robot, Robot{x: 0, y: 0, theta: 0})
+
+	x1, y1 := 20, 20
+	b.add_line(id, x1, y1)
+	if b.Map[20+map_center_x][20+map_center_y] != map_open {
+		t.Errorf("Function add_line did not add line to map correctly.")
+	}
+
+	x1, y1 = -20, -20
+	b.add_line(id, x1, y1)
+	if b.Map[map_center_x-20][map_center_y-20] != map_open {
+		t.Errorf("Function add_line did not add line to map correctly.")
+	}
+
+	x1, y1 = 40, 40
+	if b.Map[x1+map_center_x][y1+map_center_y] == map_unknown {
+		b.add_line(id, x1, y1)
+		if math.Sqrt(float64(x1*x1+y1*y1)) > irSensor_maxDistance && b.Map[x1+map_center_x][y1+map_center_y] != map_unknown {
+			t.Errorf("Function add_line did not respect the max distance.")
+		} else if b.Map[21+map_center_x][21+map_center_y] != map_obstacle {
+			t.Errorf("Function add_line did not add obstruction.")
+		}
+	} else {
+		t.Errorf("Could not test max distance, because the point is already known.")
+	}
+}
+
+func Test__add_irSensorData(t *testing.T) {
+	b := NewBackend()
+	id := 2
+	b.id2index[id] = len(backend.multi_robot)
+	b.multi_robot = append(backend.multi_robot, Robot{x: 0, y: 0, theta: 0})
+
+	irX, irY := 500, 500 //written in milimeters, while the map is in centimeters
+	b.add_irSensorData(id, irX, irY)
+	if b.Map[map_center_x+20][map_center_y+20] != map_open {
+		t.Errorf("Function add_irSensorData did not add line to map correctly.")
+	}
+	if b.Map[map_center_x+21][map_center_y+21] != map_obstacle {
+		t.Errorf("Function add_irSensorData did not add obstruction.")
+	}
+
+	irX, irY = -500, -500
+	b.add_irSensorData(id, irX, irY)
+	if b.Map[map_center_x-20][map_center_y-20] != map_open {
+		t.Errorf("Function add_irSensorData did not add line to map correctly.")
+	}
+	if b.Map[map_center_x-21][map_center_y-21] != map_obstacle {
+		t.Errorf("Function add_irSensorData did not add obstruction.")
+	}
 }
