@@ -13,8 +13,9 @@ func main() {
 	sub(client, ch_receive)
 	go publish(client, ch_publish)
 
-	window, map_image, multi_robot_handle, manual_input, init_input := gui_init(ch_publish, ch_receive, ch_robotBackendInit, ch_robotGuiInit)
-	go thread_guiUpdate(map_image, multi_robot_handle, manual_input, init_input, ch_publish, ch_robotBackendInit, ch_robotGuiInit, ch_robotPending)
+	//window.ShowAndRun() must be run in the main thread. So the GUI must be initialized here.
+	window, map_image, map_canvas, multi_robot_handle, manual_input, init_input := gui_init(ch_publish, ch_receive, ch_robotBackendInit, ch_robotGuiInit)
+	go thread_guiUpdate(map_image, map_canvas, multi_robot_handle, manual_input, init_input, ch_publish, ch_robotBackendInit, ch_robotGuiInit, ch_robotPending)
 
 	window.ShowAndRun()
 
