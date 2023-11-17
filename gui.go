@@ -16,6 +16,7 @@ import (
 var (
 	//green = color.RGBA{0x00, 0xff, 0x00, 0xff}
 	RED   = color.RGBA{0xff, 0x00, 0x00, 0xff}
+	GREEN = color.RGBA{0x00, 0xff, 0xff, 0xff}
 	BLUE  = color.RGBA{0x00, 0x00, 0xff, 0xff}
 	GRAY  = color.RGBA{0x80, 0x80, 0x80, 0xff}
 	WHITE = color.White
@@ -128,7 +129,13 @@ func thread_guiUpdate(
 func redraw_robots(multi_robot_handle *multiRobotHandle, multi_robot []Robot) {
 	if len(multi_robot) > multi_robot_handle.NumRobots() {
 		for i := multi_robot_handle.NumRobots(); i < len(multi_robot); i++ {
-			multi_robot_handle.AddRobot()
+			//find ID
+			for id, index := range backend.id2index {
+				if index == i {
+					multi_robot_handle.AddRobot(id)
+					break
+				}
+			}
 		}
 	}
 	for i := 0; i < len(multi_robot); i++ {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"math"
+	"strconv"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -151,12 +152,14 @@ func (m *multiRobotHandle) Move(index int, position fyne.Position) {
 	m.multi_robot_container.Objects[index].Move(scale_position.AddXY(dx, dy))
 }
 
-func (m *multiRobotHandle) AddRobot() {
+func (m *multiRobotHandle) AddRobot(id int) {
 	robot := robot_init()
 
 	m.multi_robot_layout.robots = append(m.multi_robot_layout.robots, robot)
 
-	robot_container := container.New(robot, robot.lines[0], robot.lines[1], robot.lines[2])
+	id_label := &canvas.Text{Text: strconv.Itoa(id), Alignment: fyne.TextAlignCenter, TextSize: 8, Color: GREEN}
+
+	robot_container := container.New(robot, robot.lines[0], robot.lines[1], robot.lines[2], id_label)
 	m.multi_robot_container.Add(robot_container)
 }
 
