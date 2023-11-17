@@ -132,7 +132,7 @@ func redraw_robots(multi_robot_handle *multiRobotHandle, multi_robot []Robot) {
 		}
 	}
 	for i := 0; i < len(multi_robot); i++ {
-		multi_robot_handle.Move(i, fyne.NewPos(float32(multi_robot[i].x), float32(multi_robot[i].y)))
+		multi_robot_handle.Move(i, fyne.NewPos(float32(multi_robot[i].x_index), float32(multi_robot[i].y_index)))
 		multi_robot_handle.Rotate(i, float64(multi_robot[i].theta))
 	}
 }

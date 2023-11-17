@@ -18,7 +18,8 @@ const (
 )
 
 type Robot struct {
-	x, y, theta int //cm, degrees
+	x_index, y_index, theta    int //cm, degrees
+	x_init, y_init, theta_init int
 }
 
 type Backend struct {
@@ -45,6 +46,7 @@ func thread_backend(
 	ch_receive <-chan adv_msg,
 	ch_robotInit <-chan [4]int,
 ) {
+	prev_msg := adv_msg{}
 	position_logger := position_logger_init()
 	pending_init := map[int]struct{}{} //simple and efficient way in golang to create a set to check values.
 	for {
@@ -58,27 +60,43 @@ func thread_backend(
 			} else {
 				//robot update
 				index := backend.id2index[msg.id]
-				backend.multi_robot[index].x -= msg.y / 10
-				backend.multi_robot[index].y -= msg.x / 10
-				backend.multi_robot[index].theta -= msg.theta
+				backend.multi_robot[index].x_index = -msg.y/10 - backend.multi_robot[index].x_init
+				backend.multi_robot[index].y_index = -msg.x/10 - backend.multi_robot[index].y_init
+				backend.multi_robot[index].theta = -msg.theta - backend.multi_robot[index].theta_init
 				//map update, dependent upon an updated robot
 				backend.add_irSensorData(msg.id, msg.ir1x, msg.ir1y)
 				backend.add_irSensorData(msg.id, msg.ir2x, msg.ir2y)
 				backend.add_irSensorData(msg.id, msg.ir3x, msg.ir3y)
 				backend.add_irSensorData(msg.id, msg.ir4x, msg.ir4y)
 				//log
-				if msg.x != 0 || msg.y != 0 || msg.theta != 0 {
-					position_logger.Printf("%d %d %d %d\n", msg.id, backend.multi_robot[backend.id2index[msg.id]].x, backend.multi_robot[backend.id2index[msg.id]].y, backend.multi_robot[backend.id2index[msg.id]].theta)
+				if msg.x != prev_msg.x || msg.y != prev_msg.y || msg.theta != prev_msg.theta {
+					position_logger.Printf("%d %d %d %d\n", msg.id, backend.get_x(msg.id), backend.get_y(msg.id), backend.get_theta(msg.id))
 				}
 			}
+			prev_msg = msg
 		case msg := <-ch_robotInit:
 			id := msg[0]
 			backend.id2index[id] = len(backend.multi_robot)
-			backend.multi_robot = append(backend.multi_robot, Robot{x: -msg[1], y: -msg[2], theta: -msg[3]})
+			backend.multi_robot = append(backend.multi_robot, Robot{-msg[1], -msg[2], -msg[3], msg[1], msg[2], msg[3]})
 			delete(pending_init, id)
 			time.Sleep(time.Second * 10)
 		}
 	}
+}
+
+// func swap_axis(x_in, y_in int) (int, int){
+// 	//the axis are represented differently in the map and in the robot code. This function swaps the axis to match the robot code.
+// 	return y_in, x_in
+// }
+
+func (b *Backend) get_x(id int) int {
+	return -b.multi_robot[b.id2index[id]].x_index //id = -index
+}
+func (b *Backend) get_y(id int) int {
+	return -b.multi_robot[b.id2index[id]].y_index //id = -index
+}
+func (b *Backend) get_theta(id int) int {
+	return -b.multi_robot[b.id2index[id]].theta //id = -index
 }
 
 func (b *Backend) add_irSensorData(id, irX, irY int) {
@@ -95,8 +113,8 @@ func (b *Backend) irSensor_scaleRotateTranselate(id, x_bodyFrame, y_bodyFrame in
 	y_bodyFrame_rotated := float64(x_bodyFrame)*math.Sin(theta_rad) + float64(y_bodyFrame)*math.Cos(theta_rad)
 
 	//scale and transelate, and change axis to properly represent the map
-	x_map := math.Round(y_bodyFrame_rotated/10) + float64(b.multi_robot[b.id2index[id]].x)
-	y_map := -math.Round(x_bodyFrame_rotated/10) + float64(b.multi_robot[b.id2index[id]].y)
+	x_map := math.Round(y_bodyFrame_rotated/10) + float64(b.multi_robot[b.id2index[id]].x_index)
+	y_map := -math.Round(x_bodyFrame_rotated/10) + float64(b.multi_robot[b.id2index[id]].y_index)
 
 	return int(x_map), int(y_map)
 }
@@ -145,8 +163,8 @@ func bresenham_algorithm(x0, y0, x1, y1 int) [][]int {
 func (b *Backend) add_line(id, x1, y1 int) {
 	//x0, y0, x1, y1 is given in map coordinates. With origo as defined in the config.
 
-	x0 := b.multi_robot[b.id2index[id]].x
-	y0 := b.multi_robot[b.id2index[id]].y
+	x0 := b.multi_robot[b.id2index[id]].x_index
+	y0 := b.multi_robot[b.id2index[id]].y_index
 
 	line_length := math.Sqrt(math.Pow(float64(x0-x1), 2) + math.Pow(float64(y0-y1), 2))
 
