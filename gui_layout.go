@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"math"
 
 	"fyne.io/fyne/v2"
@@ -55,8 +54,6 @@ func (m *robotLayout) Rotate(theta_deg float64) {
 	if theta_deg != m.current_rotation {
 		diff_theta_rad := (theta_deg - m.current_rotation) * math.Pi / 180
 		for _, line := range m.lines {
-			fmt.Println(line.Position1.X, line.Position1.Y)
-
 			x_temp := line.Position1.X //To avoid overwriting the value before it is used
 			line.Position1.X = float32(float64(line.Position1.X)*math.Cos(diff_theta_rad) - float64(line.Position1.Y)*math.Sin(diff_theta_rad))
 			line.Position1.Y = float32(float64(x_temp)*math.Sin(diff_theta_rad) + float64(line.Position1.Y)*math.Cos(diff_theta_rad))
@@ -66,7 +63,6 @@ func (m *robotLayout) Rotate(theta_deg float64) {
 			line.Position2.Y = float32(float64(x_temp)*math.Sin(diff_theta_rad) + float64(line.Position2.Y)*math.Cos(diff_theta_rad))
 		}
 		m.current_rotation = theta_deg
-		fmt.Println(theta_deg)
 	}
 }
 
