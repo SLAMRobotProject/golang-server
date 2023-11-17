@@ -18,7 +18,7 @@ const (
 )
 
 type Robot struct {
-	x_index, y_index, theta    int //cm, degrees
+	x, y, theta                int //cm, degrees
 	x_init, y_init, theta_init int
 }
 
@@ -60,9 +60,13 @@ func thread_backend(
 			} else {
 				//robot update
 				index := backend.id2index[msg.id]
-				backend.multi_robot[index].x_index = -msg.y/10 - backend.multi_robot[index].y_init
-				backend.multi_robot[index].y_index = -msg.x/10 - backend.multi_robot[index].x_init
-				backend.multi_robot[index].theta = -msg.theta - backend.multi_robot[index].theta_init
+				new_x, new_y := rotate(float64(msg.x/10), float64(msg.y/10), float64(backend.multi_robot[index].theta_init))
+				backend.multi_robot[index].x = int(new_x) + backend.multi_robot[index].x_init
+				backend.multi_robot[index].y = int(new_y) + backend.multi_robot[index].y_init
+				backend.multi_robot[index].theta = msg.theta + backend.multi_robot[index].theta_init
+
+				//TODO fmt.Print("x: ", backend.multi_robot[index].x, " y: ", backend.multi_robot[index].y, " theta: ", backend.multi_robot[index].theta, "\n")
+
 				//map update, dependent upon an updated robot
 				backend.add_irSensorData(msg.id, msg.ir1x, msg.ir1y)
 				backend.add_irSensorData(msg.id, msg.ir2x, msg.ir2y)
@@ -77,26 +81,33 @@ func thread_backend(
 		case msg := <-ch_robotInit:
 			id := msg[0]
 			backend.id2index[id] = len(backend.multi_robot)
-			backend.multi_robot = append(backend.multi_robot, Robot{-msg[2], -msg[1], -msg[3], msg[1], msg[2], msg[3]})
+			backend.multi_robot = append(backend.multi_robot, Robot{msg[1], msg[2], msg[3], msg[1], msg[2], msg[3]})
 			delete(pending_init, id)
 			time.Sleep(time.Second * 10)
 		}
 	}
 }
 
-// func swap_axis(x_in, y_in int) (int, int){
-// 	//the axis are represented differently in the map and in the robot code. This function swaps the axis to match the robot code.
-// 	return y_in, x_in
-// }
+//	func swap_axis(x_in, y_in int) (int, int){
+//		//the axis are represented differently in the map and in the robot code. This function swaps the axis to match the robot code.
+//		return y_in, x_in
+//	}
+func rotate(x_in, y_in, theta float64) (float64, float64) {
+	//rotate the point around origo. Theta is given in degrees.
+	theta_rad := theta * math.Pi / 180
+	x_out := x_in*math.Cos(theta_rad) - y_in*math.Sin(theta_rad)
+	y_out := x_in*math.Sin(theta_rad) + y_in*math.Cos(theta_rad)
+	return x_out, y_out
+}
 
 func (b *Backend) get_x(id int) int {
-	return -b.multi_robot[b.id2index[id]].x_index //id = -index
+	return b.multi_robot[b.id2index[id]].x
 }
 func (b *Backend) get_y(id int) int {
-	return -b.multi_robot[b.id2index[id]].y_index //id = -index
+	return b.multi_robot[b.id2index[id]].y
 }
 func (b *Backend) get_theta(id int) int {
-	return -b.multi_robot[b.id2index[id]].theta //id = -index
+	return b.multi_robot[b.id2index[id]].theta
 }
 
 func (b *Backend) add_irSensorData(id, irX, irY int) {
@@ -107,14 +118,16 @@ func (b *Backend) add_irSensorData(id, irX, irY int) {
 func (b *Backend) irSensor_scaleRotateTranselate(id, x_bodyFrame, y_bodyFrame int) (int, int) {
 	// IR data is given in mm and it is relative to the body, so it must be scaled, rotated and transelated to the map.
 
-	theta_rad := float64(b.multi_robot[b.id2index[id]].theta) * math.Pi / 180
+	//Must flip y_bodyFrame, because the axis is flipped in the robot code.
+	y_bodyFrame = -y_bodyFrame
+
 	//rotate
-	x_bodyFrame_rotated := float64(x_bodyFrame)*math.Cos(theta_rad) - float64(y_bodyFrame)*math.Sin(theta_rad)
-	y_bodyFrame_rotated := float64(x_bodyFrame)*math.Sin(theta_rad) + float64(y_bodyFrame)*math.Cos(theta_rad)
+	theta := b.multi_robot[b.id2index[id]].theta
+	x_bodyFrame_rotated, y_bodyFrame_rotated := rotate(float64(x_bodyFrame), float64(y_bodyFrame), float64(theta))
 
 	//scale and transelate, and change axis to properly represent the map
-	x_map := math.Round(y_bodyFrame_rotated/10) + float64(b.multi_robot[b.id2index[id]].x_index)
-	y_map := -math.Round(x_bodyFrame_rotated/10) + float64(b.multi_robot[b.id2index[id]].y_index)
+	x_map := math.Round(x_bodyFrame_rotated/10) + float64(b.multi_robot[b.id2index[id]].x)
+	y_map := math.Round(y_bodyFrame_rotated/10) + float64(b.multi_robot[b.id2index[id]].y)
 
 	return int(x_map), int(y_map)
 }
@@ -163,8 +176,8 @@ func bresenham_algorithm(x0, y0, x1, y1 int) [][]int {
 func (b *Backend) add_line(id, x1, y1 int) {
 	//x0, y0, x1, y1 is given in map coordinates. With origo as defined in the config.
 
-	x0 := b.multi_robot[b.id2index[id]].x_index
-	y0 := b.multi_robot[b.id2index[id]].y_index
+	x0 := b.multi_robot[b.id2index[id]].x
+	y0 := b.multi_robot[b.id2index[id]].y
 
 	line_length := math.Sqrt(math.Pow(float64(x0-x1), 2) + math.Pow(float64(y0-y1), 2))
 
@@ -182,7 +195,7 @@ func (b *Backend) add_line(id, x1, y1 int) {
 	}
 
 	//get map index values
-	x0_idx, y0_idx, x1_idx, y1_idx := x0+map_center_x, y0+map_center_y, x1+map_center_x, y1+map_center_y
+	x0_idx, y0_idx, x1_idx, y1_idx := map_center_x+x0, map_center_y-y0, map_center_x+x1, map_center_y-y1
 	//get values in map range
 	x1_idx = min(max(x1_idx, 0), map_size-1)
 	y1_idx = min(max(y1_idx, 0), map_size-1)

@@ -139,7 +139,7 @@ func redraw_robots(multi_robot_handle *multiRobotHandle, multi_robot []Robot) {
 		}
 	}
 	for i := 0; i < len(multi_robot); i++ {
-		multi_robot_handle.Move(i, fyne.NewPos(float32(multi_robot[i].x_index), float32(multi_robot[i].y_index)))
+		multi_robot_handle.Move(i, fyne.NewPos(float32(multi_robot[i].x), -float32(multi_robot[i].y)))
 		multi_robot_handle.Rotate(i, float64(multi_robot[i].theta))
 	}
 }
@@ -191,8 +191,8 @@ func init_input_tabInit(ch_robotBackendInit, ch_robotGuiInit chan<- [4]int, id i
 		}
 	})
 
-	default_button := widget.NewButton("Default [0, 0, 0]", func() {
-		x, y, theta := 0, 0, 0
+	default_button := widget.NewButton("Default [0, 0, 90]", func() {
+		x, y, theta := 0, 0, 90
 		ch_robotBackendInit <- [4]int{id, x, y, theta}
 		ch_robotGuiInit <- [4]int{id, x, y, theta}
 
@@ -242,8 +242,9 @@ func manual_input_tabInit(ch_publish chan<- [3]int, id int) *fyne.Container {
 		y, errY := strconv.Atoi(input_y.Text)
 		//TODO: fix id
 		if errX == nil && errY == nil {
-			//convert to mm because robot uses mm, and divide by two bacause robot multiplies by two
-			ch_publish <- [3]int{id, x * 10, y * 10}
+			//convert to mm because robot uses mm, and rotate back from init to get robot body coordinates
+			x_robotBody, y_robotBody := rotate(float64(x*10), float64(y*10), -float64(backend.multi_robot[backend.id2index[id]].theta_init))
+			ch_publish <- [3]int{id, int(x_robotBody), int(y_robotBody)}
 		} else {
 			//TODO: kanskje dette burde logges
 			println("Invalid input")

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"math"
 	"strconv"
 
 	"fyne.io/fyne/v2"
@@ -25,7 +24,7 @@ type robotLayout struct {
 }
 
 func NewRobotLayout(lines [3]*canvas.Line) *robotLayout {
-	return &robotLayout{lines, 1, 0}
+	return &robotLayout{lines, 1, 90}
 }
 
 // Layout is called to pack all child objects into a specified size.
@@ -53,23 +52,21 @@ func (m *robotLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 
 func (m *robotLayout) Rotate(theta_deg float64) {
 	if theta_deg != m.current_rotation {
-		diff_theta_rad := (theta_deg - m.current_rotation) * math.Pi / 180
+		diff_theta := -(theta_deg - m.current_rotation) //negative because the rotation is clockwise (flipped axis)
 		for _, line := range m.lines {
-			x_temp := line.Position1.X //To avoid overwriting the value before it is used
-			line.Position1.X = float32(float64(line.Position1.X)*math.Cos(diff_theta_rad) - float64(line.Position1.Y)*math.Sin(diff_theta_rad))
-			line.Position1.Y = float32(float64(x_temp)*math.Sin(diff_theta_rad) + float64(line.Position1.Y)*math.Cos(diff_theta_rad))
+			x, y := rotate(float64(line.Position1.X), float64(line.Position1.Y), float64(diff_theta))
+			line.Position1.X, line.Position1.Y = float32(x), float32(y)
 
-			x_temp = line.Position2.X
-			line.Position2.X = float32(float64(line.Position2.X)*math.Cos(diff_theta_rad) - float64(line.Position2.Y)*math.Sin(diff_theta_rad))
-			line.Position2.Y = float32(float64(x_temp)*math.Sin(diff_theta_rad) + float64(line.Position2.Y)*math.Cos(diff_theta_rad))
+			x, y = rotate(float64(line.Position2.X), float64(line.Position2.Y), float64(diff_theta))
+			line.Position2.X, line.Position2.Y = float32(x), float32(y)
 		}
 		m.current_rotation = theta_deg
 	}
 }
 
 func robot_init() *robotLayout {
-	main_body := line_init(BLUE, fyne.NewPos(0, -10), fyne.NewPos(0, 10), 10)
-	wheels := line_init(BLUE, fyne.NewPos(-8, 0), fyne.NewPos(8, 0), 5)
+	main_body := line_init(BLUE, fyne.NewPos(0, -10), fyne.NewPos(0, 10), 13)
+	wheels := line_init(BLUE, fyne.NewPos(-10, 0), fyne.NewPos(10, 0), 6.5)
 	direction_indicator := line_init(RED, fyne.NewPos(0, 0), fyne.NewPos(0, -9), 3)
 	robot_lines := [3]*canvas.Line{main_body, direction_indicator, wheels}
 	robot_handle := NewRobotLayout(robot_lines)
