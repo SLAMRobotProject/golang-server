@@ -105,7 +105,6 @@ func thread_guiUpdate(
 	ch_robotPending <-chan int,
 ) {
 	ch_fps := time.Tick(time.Second / gui_frame_rate)
-	pending_id2index := map[int]int{}
 	for {
 		select {
 		case <-ch_fps:
@@ -113,13 +112,14 @@ func thread_guiUpdate(
 			map_canvas.Refresh()
 			redraw_robots(multi_robot_handle, backend.multi_robot)
 		case id_pending := <-ch_robotPending:
-			pending_id2index[id_pending] = len(backend.multi_robot)
 			init_input.Append(container.NewTabItem("NRF-"+strconv.Itoa(id_pending), init_input_tabInit(ch_robotBackendInit, ch_robotGuiInit, id_pending)))
 		case init := <-ch_robotGuiInit:
 			id := init[0]
-			init_input.Remove(init_input.Items[pending_id2index[id]])
-			delete(pending_id2index, id)
-
+			for i := 0; i < len(init_input.Items); i++ {
+				if init_input.Items[i].Text == "NRF-"+strconv.Itoa(id) {
+					init_input.Remove(init_input.Items[i])
+				}
+			}
 			manual_input.Append(container.NewTabItem("NRF-"+strconv.Itoa(id), manual_input_tabInit(ch_publish, id)))
 		}
 	}
@@ -184,7 +184,7 @@ func init_input_tabInit(ch_robotBackendInit, ch_robotGuiInit chan<- [4]int, id i
 		}
 	})
 
-	default_button := widget.NewButton("Initialize", func() {
+	default_button := widget.NewButton("Default [0, 0, 0]", func() {
 		x, y, theta := 0, 0, 0
 		ch_robotBackendInit <- [4]int{id, x, y, theta}
 		ch_robotGuiInit <- [4]int{id, x, y, theta}
