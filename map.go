@@ -72,7 +72,7 @@ func thread_backend(
 				backend.add_irSensorData(msg.id, msg.ir2x, msg.ir2y)
 				backend.add_irSensorData(msg.id, msg.ir3x, msg.ir3y)
 				backend.add_irSensorData(msg.id, msg.ir4x, msg.ir4y)
-				//log
+				//log position
 				if msg.x != prev_msg.x || msg.y != prev_msg.y || msg.theta != prev_msg.theta {
 					position_logger.Printf("%d %d %d %d\n", msg.id, backend.get_x(msg.id), backend.get_y(msg.id), backend.get_theta(msg.id))
 				}
@@ -88,10 +88,24 @@ func thread_backend(
 	}
 }
 
-//	func swap_axis(x_in, y_in int) (int, int){
-//		//the axis are represented differently in the map and in the robot code. This function swaps the axis to match the robot code.
-//		return y_in, x_in
-//	}
+func (b *Backend) find_closest_robot(x, y int) int {
+	//find the robot closest to the given point
+	min_distance := math.MaxFloat64
+	closest_robot := -1
+	for id, index := range b.id2index {
+		distance := math.Sqrt(math.Pow(float64(b.multi_robot[index].x-x), 2) + math.Pow(float64(b.multi_robot[index].y-y), 2))
+		if distance < min_distance {
+			min_distance = distance
+			closest_robot = id
+		}
+	}
+	if closest_robot == -1 {
+		general_logger.Println("Tried to find closest robot, but no robots were found.")
+	}
+	return closest_robot
+
+}
+
 func rotate(x_in, y_in, theta float64) (float64, float64) {
 	//rotate the point around origo. Theta is given in degrees.
 	theta_rad := theta * math.Pi / 180

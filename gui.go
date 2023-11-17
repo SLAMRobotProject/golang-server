@@ -75,14 +75,6 @@ func gui_init(
 		container.NewTabItem("Manual", manual_input),
 	)
 
-	// robot := canvas.NewCircle(color.Black)
-	// robot.FillColor = color.RGBA{0x00, 0xff, 0x00, 0xff} //Green
-
-	// line := canvas.NewLine(color.White)
-	// line.Position1 = fyne.NewPos(100, 100)
-	// line.Position2 = fyne.NewPos(200, 200)
-	// line.StrokeWidth = 10
-
 	multi_robot_handle := multi_robot_init()
 
 	map_with_robots := container.NewStack(map_canvas, multi_robot_handle.multi_robot_container)
@@ -185,9 +177,11 @@ func init_input_tabInit(ch_robotBackendInit, ch_robotGuiInit chan<- [4]int, id i
 			//send to backend [cm, cm, degrees]
 			ch_robotBackendInit <- [4]int{id, x, y, theta}
 			ch_robotGuiInit <- [4]int{id, x, y, theta}
+			general_logger.Println("Initializing robot with ID: ", id, " x: ", x, " y: ", y, " theta: ", theta, ".")
 		} else {
-			//TODO: kanskje dette burde logges
 			println("Invalid input")
+			general_logger.Println("Invalid input. Only integers are allowed.")
+
 		}
 	})
 
@@ -208,16 +202,22 @@ func automatic_input_init(ch_publish chan<- [3]int) *fyne.Container {
 	input_y := widget.NewEntry()
 	input_y.SetPlaceHolder("y [cm]")
 	automatic_container := container.NewVBox(input_x, input_y, widget.NewButton("Publish", func() {
-		//log.Println("Content was:", input_x.Text, ", ", input_y.Text)
 		x, errX := strconv.Atoi(input_x.Text)
 		y, errY := strconv.Atoi(input_y.Text)
-		id := 0 //TODO: denne skal bestemmes i backend delen.
 		if errX == nil && errY == nil {
-			//scale to mm and send to robot, robot uses mm
-			ch_publish <- [3]int{id, x * 10, y * 10}
+			id := backend.find_closest_robot(x, y)
+			if id == -1 {
+				//already logged in find_closest_robot()
+				return
+			}
+
+			//convert to mm because robot uses mm, and rotate back from init to get robot body coordinates
+			x_robotBody, y_robotBody := rotate(float64(x*10), float64(y*10), -float64(backend.multi_robot[backend.id2index[id]].theta_init))
+			ch_publish <- [3]int{id, int(x_robotBody), int(y_robotBody)}
+			general_logger.Println("Publishing automatic input to robot with ID: ", id, " x: ", x, " y: ", y, ".")
 		} else {
-			//TODO: kanskje dette burde logges
 			println("Invalid input")
+			general_logger.Println("Invalid input. Only integers are allowed.")
 		}
 	}))
 	return automatic_container
@@ -245,9 +245,10 @@ func manual_input_tabInit(ch_publish chan<- [3]int, id int) *fyne.Container {
 			//convert to mm because robot uses mm, and rotate back from init to get robot body coordinates
 			x_robotBody, y_robotBody := rotate(float64(x*10), float64(y*10), -float64(backend.multi_robot[backend.id2index[id]].theta_init))
 			ch_publish <- [3]int{id, int(x_robotBody), int(y_robotBody)}
+			general_logger.Println("Publishing manual input to robot with ID: ", id, " x: ", x, " y: ", y, ".")
 		} else {
-			//TODO: kanskje dette burde logges
 			println("Invalid input")
+			general_logger.Println("Invalid input. Only integers are allowed.")
 		}
 	}))
 	return manual_container
