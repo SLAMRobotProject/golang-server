@@ -60,8 +60,8 @@ func thread_backend(
 			} else {
 				//robot update
 				index := backend.id2index[msg.id]
-				backend.multi_robot[index].x_index = -msg.y/10 - backend.multi_robot[index].x_init
-				backend.multi_robot[index].y_index = -msg.x/10 - backend.multi_robot[index].y_init
+				backend.multi_robot[index].x_index = -msg.y/10 - backend.multi_robot[index].y_init
+				backend.multi_robot[index].y_index = -msg.x/10 - backend.multi_robot[index].x_init
 				backend.multi_robot[index].theta = -msg.theta - backend.multi_robot[index].theta_init
 				//map update, dependent upon an updated robot
 				backend.add_irSensorData(msg.id, msg.ir1x, msg.ir1y)
@@ -77,7 +77,7 @@ func thread_backend(
 		case msg := <-ch_robotInit:
 			id := msg[0]
 			backend.id2index[id] = len(backend.multi_robot)
-			backend.multi_robot = append(backend.multi_robot, Robot{-msg[1], -msg[2], -msg[3], msg[1], msg[2], msg[3]})
+			backend.multi_robot = append(backend.multi_robot, Robot{-msg[2], -msg[1], -msg[3], msg[1], msg[2], msg[3]})
 			delete(pending_init, id)
 			time.Sleep(time.Second * 10)
 		}
