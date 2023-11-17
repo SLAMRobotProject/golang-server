@@ -22,3 +22,4 @@ go.work
 
 # Output from the logger
 *.csv
+*.log
