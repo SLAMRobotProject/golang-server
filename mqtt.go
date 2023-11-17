@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"strconv"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -52,17 +53,16 @@ func publish(
 	client mqtt.Client,
 	ch_publish <-chan [3]int,
 ) {
-	num_byte := []byte{2}
+	prefix_byte := []byte{2}
 	for msg := range ch_publish {
 
 		buf := new(bytes.Buffer)
-		binary.Write(buf, binary.LittleEndian, num_byte)
-		//binary.Write(buf, binary.LittleEndian, int8(msg[0]))
+		binary.Write(buf, binary.LittleEndian, prefix_byte)
 		binary.Write(buf, binary.LittleEndian, int16(msg[1]))
 		binary.Write(buf, binary.LittleEndian, int16(msg[2]))
 
 		//text := fmt.Sprintf("Message %d", i)
-		token := client.Publish("v2/server/NRF_5/cmd", 0, false, buf.Bytes())
+		token := client.Publish("v2/server/NRF_"+strconv.Itoa(msg[0])+"/cmd", 0, false, buf.Bytes())
 		token.Wait()
 		time.Sleep(time.Second)
 	}
