@@ -212,7 +212,8 @@ func automatic_input_init(ch_publish chan<- [3]int) *fyne.Container {
 			}
 
 			//convert to mm because robot uses mm, and rotate back from init to get robot body coordinates
-			x_robotBody, y_robotBody := rotate(float64(x*10), float64(y*10), -float64(backend.multi_robot[backend.id2index[id]].theta_init))
+			robot := backend.multi_robot[backend.id2index[id]]
+			x_robotBody, y_robotBody := rotate(float64(x-robot.x_init)*10, float64(y-robot.y_init)*10, -float64(robot.theta_init))
 			ch_publish <- [3]int{id, int(x_robotBody), int(y_robotBody)}
 			general_logger.Println("Publishing automatic input to robot with ID: ", id, " x: ", x, " y: ", y, ".")
 		} else {
@@ -243,7 +244,8 @@ func manual_input_tabInit(ch_publish chan<- [3]int, id int) *fyne.Container {
 		//TODO: fix id
 		if errX == nil && errY == nil {
 			//convert to mm because robot uses mm, and rotate back from init to get robot body coordinates
-			x_robotBody, y_robotBody := rotate(float64(x*10), float64(y*10), -float64(backend.multi_robot[backend.id2index[id]].theta_init))
+			robot := backend.multi_robot[backend.id2index[id]]
+			x_robotBody, y_robotBody := rotate(float64(x-robot.x_init)*10, float64(y-robot.y_init)*10, -float64(robot.theta_init))
 			ch_publish <- [3]int{id, int(x_robotBody), int(y_robotBody)}
 			general_logger.Println("Publishing manual input to robot with ID: ", id, " x: ", x, " y: ", y, ".")
 		} else {
