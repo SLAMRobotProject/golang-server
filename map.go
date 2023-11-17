@@ -94,9 +94,9 @@ func (b *Backend) irSensor_scaleRotateTranselate(id, x_bodyFrame, y_bodyFrame in
 	x_bodyFrame_rotated := float64(x_bodyFrame)*math.Cos(theta_rad) - float64(y_bodyFrame)*math.Sin(theta_rad)
 	y_bodyFrame_rotated := float64(x_bodyFrame)*math.Sin(theta_rad) + float64(y_bodyFrame)*math.Cos(theta_rad)
 
-	//scale and transelate
-	x_map := math.Round(y_bodyFrame_rotated/10) + float64(b.multi_robot[b.id2index[id]].y)
-	y_map := -math.Round(x_bodyFrame_rotated/10) + float64(b.multi_robot[b.id2index[id]].x)
+	//scale and transelate, and change axis to properly represent the map
+	x_map := math.Round(y_bodyFrame_rotated/10) + float64(b.multi_robot[b.id2index[id]].x)
+	y_map := -math.Round(x_bodyFrame_rotated/10) + float64(b.multi_robot[b.id2index[id]].y)
 
 	return int(x_map), int(y_map)
 }
