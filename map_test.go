@@ -63,13 +63,13 @@ func Test__add_line(t *testing.T) {
 
 	x1, y1 := 20, 20
 	b.add_line(id, x1, y1)
-	if b.Map[20+map_center_x][20+map_center_y] != map_open {
-		t.Errorf("Function add_line did not add line to map correctly.")
+	if b.Map[20+map_center_x][20+map_center_y] != map_obstacle {
+		t.Errorf("Function add_line did not add obstacle to map correctly.")
 	}
 
 	x1, y1 = -20, -20
 	b.add_line(id, x1, y1)
-	if b.Map[map_center_x-20][map_center_y-20] != map_open {
+	if b.Map[map_center_x-19][map_center_y-19] != map_open {
 		t.Errorf("Function add_line did not add line to map correctly.")
 	}
 
@@ -78,8 +78,8 @@ func Test__add_line(t *testing.T) {
 		b.add_line(id, x1, y1)
 		if math.Sqrt(float64(x1*x1+y1*y1)) > irSensor_maxDistance && b.Map[x1+map_center_x][y1+map_center_y] != map_unknown {
 			t.Errorf("Function add_line did not respect the max distance.")
-		} else if b.Map[21+map_center_x][21+map_center_y] != map_obstacle {
-			t.Errorf("Function add_line did not add obstruction.")
+		} else if b.Map[21+map_center_x][21+map_center_y] != map_open {
+			t.Errorf("Function add_line did not add line to map correctly.")
 		}
 	} else {
 		t.Errorf("Could not test max distance, because the point is already known.")
@@ -94,19 +94,24 @@ func Test__add_irSensorData(t *testing.T) {
 
 	irX, irY := 500, 500 //written in milimeters, while the map is in centimeters
 	b.add_irSensorData(id, irX, irY)
-	if b.Map[map_center_x+20][map_center_y+20] != map_open {
-		t.Errorf("Function add_irSensorData did not add line to map correctly.")
+	if b.Map[map_center_x+21][map_center_y-21] != map_open {
+		t.Errorf("Function add_irSensorData did not add line to map correctly.#1")
 	}
-	if b.Map[map_center_x+21][map_center_y+21] != map_obstacle {
+
+	irX, irY = -200, -200
+	b.add_irSensorData(id, irX, irY)
+	if b.Map[map_center_x-19][map_center_y+19] != map_open {
+		t.Errorf("Function add_irSensorData did not add line to map correctly.#2")
+	}
+	if b.Map[map_center_x-20][map_center_y+20] != map_obstacle {
+		print(b.Map[map_center_x-20][map_center_y+20])
 		t.Errorf("Function add_irSensorData did not add obstruction.")
 	}
 
-	irX, irY = -500, -500
+	irX, irY = 1000, 1000
+	b.multi_robot[b.id2index[id]].x = 150
 	b.add_irSensorData(id, irX, irY)
-	if b.Map[map_center_x-20][map_center_y-20] != map_open {
-		t.Errorf("Function add_irSensorData did not add line to map correctly.")
-	}
-	if b.Map[map_center_x-21][map_center_y-21] != map_obstacle {
-		t.Errorf("Function add_irSensorData did not add obstruction.")
+	if b.Map[map_center_x+150+21][map_center_y-21] == map_open {
+		t.Errorf("Function add_irSensorData did not respect the max distance. #3")
 	}
 }

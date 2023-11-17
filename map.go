@@ -58,8 +58,8 @@ func thread_backend(
 			} else {
 				//robot update
 				index := backend.id2index[msg.id]
-				backend.multi_robot[index].x -= msg.x / 10
-				backend.multi_robot[index].y -= msg.y / 10
+				backend.multi_robot[index].x -= msg.y / 10
+				backend.multi_robot[index].y -= msg.x / 10
 				backend.multi_robot[index].theta -= msg.theta
 				//map update, dependent upon an updated robot
 				backend.add_irSensorData(msg.id, msg.ir1x, msg.ir1y)
@@ -74,7 +74,7 @@ func thread_backend(
 		case msg := <-ch_robotInit:
 			id := msg[0]
 			backend.id2index[id] = len(backend.multi_robot)
-			backend.multi_robot = append(backend.multi_robot, Robot{x: msg[1], y: msg[2], theta: msg[3]})
+			backend.multi_robot = append(backend.multi_robot, Robot{x: -msg[1], y: -msg[2], theta: -msg[3]})
 			delete(pending_init, id)
 			time.Sleep(time.Second * 10)
 		}
@@ -91,12 +91,12 @@ func (b *Backend) irSensor_scaleRotateTranselate(id, x_bodyFrame, y_bodyFrame in
 
 	theta_rad := float64(b.multi_robot[b.id2index[id]].theta) * math.Pi / 180
 	//rotate
-	x_bodyFrame_rotated := float64(x_bodyFrame)*math.Cos(-theta_rad) - float64(y_bodyFrame)*math.Sin(-theta_rad)
-	y_bodyFrame_rotated := float64(x_bodyFrame)*math.Sin(-theta_rad) + float64(y_bodyFrame)*math.Cos(-theta_rad)
+	x_bodyFrame_rotated := float64(x_bodyFrame)*math.Cos(theta_rad) - float64(y_bodyFrame)*math.Sin(theta_rad)
+	y_bodyFrame_rotated := float64(x_bodyFrame)*math.Sin(theta_rad) + float64(y_bodyFrame)*math.Cos(theta_rad)
 
 	//scale and transelate
-	x_map := math.Round(x_bodyFrame_rotated/10) + float64(b.multi_robot[b.id2index[id]].x)
-	y_map := math.Round(y_bodyFrame_rotated/10) + float64(b.multi_robot[b.id2index[id]].y)
+	x_map := math.Round(y_bodyFrame_rotated/10) + float64(b.multi_robot[b.id2index[id]].y)
+	y_map := -math.Round(x_bodyFrame_rotated/10) + float64(b.multi_robot[b.id2index[id]].x)
 
 	return int(x_map), int(y_map)
 }
@@ -152,9 +152,9 @@ func (b *Backend) add_line(id, x1, y1 int) {
 
 	var obstruction bool
 	if line_length < irSensor_maxDistance {
-		obstruction = false
-	} else {
 		obstruction = true
+	} else {
+		obstruction = false
 
 		//shorten the line to irSensor_maxDistance, needed for bresenham algorithm
 		scale := irSensor_maxDistance / line_length
@@ -162,9 +162,6 @@ func (b *Backend) add_line(id, x1, y1 int) {
 		y1 = y0 + int(scale*float64(y1-y0))
 
 	}
-	//-----------------------------------------------------------------------
-	//All values below here should use map index values, not map coordinates. (No negative values)
-	//-----------------------------------------------------------------------
 
 	//get map index values
 	x0_idx, y0_idx, x1_idx, y1_idx := x0+map_center_x, y0+map_center_y, x1+map_center_x, y1+map_center_y
@@ -179,13 +176,8 @@ func (b *Backend) add_line(id, x1, y1 int) {
 		x := idx_points[i][0]
 		y := idx_points[i][1]
 		b.Map[x][y] = map_open
-		//fmt.Println("Open map at: ", x, y)
 	}
 	if obstruction {
-		x := x1_idx
-		y := y1_idx
-		if x > 0 && x < map_size && y > 0 && y < map_size {
-			b.Map[x][y] = map_obstacle
-		}
+		b.Map[x1_idx][y1_idx] = map_obstacle
 	}
 }
