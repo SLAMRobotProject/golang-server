@@ -271,9 +271,6 @@ func (m *mapAxis) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 
 // MinSize finds the smallest size that satisfies all the child objects.
 func (m *mapAxis) MinSize(objects []fyne.CanvasObject) fyne.Size {
-	minSize := fyne.NewSize(0, 0)
-	for _, child := range objects {
-		minSize = minSize.Max(child.Size())
-	}
+	minSize := fyne.NewSize(map_minimum_display_size, map_minimum_display_size)
 	return minSize
 }
