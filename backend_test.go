@@ -56,33 +56,33 @@ func Test__bresenham_algorithm(t *testing.T) {
 }
 
 func Test__add_line(t *testing.T) {
-	b := NewBackend()
+	s := init_fullSlamState()
 	id := 2
-	b.id2index[id] = len(backend.multi_robot)
-	b.multi_robot = append(backend.multi_robot, *NewRobot(0, 0, 90))
+	s.id2index[id] = len(s.multi_robot)
+	s.multi_robot = append(s.multi_robot, *init_robotState(0, 0, 90))
 
 	x1, y1 := 20, 20
-	x1_idx, y1_idx := get_map_index(x1, y1)
-	b.add_line(id, x1, y1)
-	if b.Map[x1_idx][y1_idx] != map_obstacle {
+	x1_idx, y1_idx := get_mapIndex(x1, y1)
+	s.add_line(id, x1, y1)
+	if s.Map[x1_idx][y1_idx] != MAP_OBSTACLE {
 		t.Errorf("Function add_line did not add obstacle to map correctly.")
 	}
 
 	x1, y1 = -20, -20
-	x1_mod_idx, y1_mod_idx := get_map_index(x1+1, y1+1) //modified to test the point before the obstacle
-	b.add_line(id, x1, y1)
-	if b.Map[x1_mod_idx][y1_mod_idx] != map_open {
+	x1_mod_idx, y1_mod_idx := get_mapIndex(x1+1, y1+1) //modified to test the point before the obstacle
+	s.add_line(id, x1, y1)
+	if s.Map[x1_mod_idx][y1_mod_idx] != MAP_OPEN {
 		t.Errorf("Function add_line did not add line to map correctly.")
 	}
 
 	x1, y1 = 40, 40
-	x1_idx, y1_idx = get_map_index(x1, y1)
-	if b.Map[x1_idx][y1_idx] == map_unknown {
-		b.add_line(id, x1, y1)
-		x1_mod_idx, y1_mod_idx = get_map_index(21, 21) //modified to respect a max distance of 30
-		if math.Sqrt(float64(x1*x1+y1*y1)) > irSensor_maxDistance && b.Map[x1_idx][y1_idx] != map_unknown {
+	x1_idx, y1_idx = get_mapIndex(x1, y1)
+	if s.Map[x1_idx][y1_idx] == MAP_UNKNOWN {
+		s.add_line(id, x1, y1)
+		x1_mod_idx, y1_mod_idx = get_mapIndex(21, 21) //modified to respect a max distance of 30
+		if math.Sqrt(float64(x1*x1+y1*y1)) > IR_SENSOR_MAX_DISTANCE && s.Map[x1_idx][y1_idx] != MAP_UNKNOWN {
 			t.Errorf("Function add_line did not respect the max distance.")
-		} else if b.Map[x1_mod_idx][y1_mod_idx] != map_open {
+		} else if s.Map[x1_mod_idx][y1_mod_idx] != MAP_OPEN {
 			t.Errorf("Function add_line did not add line to map correctly.")
 		}
 	} else {
@@ -90,32 +90,32 @@ func Test__add_line(t *testing.T) {
 	}
 }
 
-func Test__add_irSensorData(t *testing.T) {
-	b := NewBackend()
+func Test__irSensorData_add(t *testing.T) {
+	s := init_fullSlamState()
 	id := 2
-	b.id2index[id] = len(backend.multi_robot)
-	b.multi_robot = append(backend.multi_robot, *NewRobot(0, 0, 90))
+	s.id2index[id] = len(s.multi_robot)
+	s.multi_robot = append(s.multi_robot, *init_robotState(0, 0, 90))
 
 	irX, irY := 500, 500 //written in milimeters (because of the robot code), while the map is in centimeters
-	b.add_irSensorData(id, irX, irY)
-	if b.Map[map_center_x+21][map_center_y-21] != map_open {
-		t.Errorf("Function add_irSensorData did not add line to map correctly.#1")
+	s.irSensorData_add(id, irX, irY)
+	if s.Map[MAP_CENTER_X+21][MAP_CENTER_Y-21] != MAP_OPEN {
+		t.Errorf("Function irSensorData_add did not add line to map correctly.#1")
 	}
 
 	irX, irY = -200, -200
-	b.add_irSensorData(id, irX, irY)
-	if b.Map[map_center_x-19][map_center_y+19] != map_open {
-		t.Errorf("Function add_irSensorData did not add line to map correctly.#2")
+	s.irSensorData_add(id, irX, irY)
+	if s.Map[MAP_CENTER_X-19][MAP_CENTER_Y+19] != MAP_OPEN {
+		t.Errorf("Function irSensorData_add did not add line to map correctly.#2")
 	}
-	if b.Map[map_center_x-20][map_center_y+20] != map_obstacle {
-		print(b.Map[map_center_x-20][map_center_y+20])
-		t.Errorf("Function add_irSensorData did not add obstruction.")
+	if s.Map[MAP_CENTER_X-20][MAP_CENTER_Y+20] != MAP_OBSTACLE {
+		print(s.Map[MAP_CENTER_X-20][MAP_CENTER_Y+20])
+		t.Errorf("Function irSensorData_add did not add obstruction.")
 	}
 
 	irX, irY = 1000, 1000
-	b.multi_robot[b.id2index[id]].x = -150
-	b.add_irSensorData(id, irX, irY)
-	if b.Map[map_center_x+21][map_center_y+150-21] == map_open {
-		t.Errorf("Function add_irSensorData did not respect the max distance. #3")
+	s.multi_robot[s.id2index[id]].x = -150
+	s.irSensorData_add(id, irX, irY)
+	if s.Map[MAP_CENTER_X+21][MAP_CENTER_Y+150-21] == MAP_OPEN {
+		t.Errorf("Function irSensorData_add did not respect the max distance. #3")
 	}
 }

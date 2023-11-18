@@ -12,15 +12,15 @@ type mapAxis struct {
 	xText, yText *canvas.Text
 }
 
-func NewMapAxis() *mapAxis {
+func init_mapAxis() *mapAxis {
 	xAxis := canvas.NewLine(ORANGE_T)
-	xAxis.Position1 = fyne.NewPos(0, map_center_y)
-	xAxis.Position2 = fyne.NewPos(map_size, map_center_y)
+	xAxis.Position1 = fyne.NewPos(0, MAP_CENTER_Y)
+	xAxis.Position2 = fyne.NewPos(MAP_SIZE, MAP_CENTER_Y)
 	yAxis := canvas.NewLine(ORANGE_T)
-	yAxis.Position1 = fyne.NewPos(map_center_x, 0)
-	yAxis.Position2 = fyne.NewPos(map_center_x, map_size)
-	xText := canvas.NewText("x="+strconv.Itoa(map_size-map_center_x), DARKRED)
-	yText := canvas.NewText("y="+strconv.Itoa(map_size-map_center_y), DARKRED)
+	yAxis.Position1 = fyne.NewPos(MAP_CENTER_X, 0)
+	yAxis.Position2 = fyne.NewPos(MAP_CENTER_X, MAP_SIZE)
+	xText := canvas.NewText("x="+strconv.Itoa(MAP_SIZE-MAP_CENTER_X), DARKRED)
+	yText := canvas.NewText("y="+strconv.Itoa(MAP_SIZE-MAP_CENTER_Y), DARKRED)
 
 	return &mapAxis{xAxis, yAxis, xText, yText}
 }
@@ -35,20 +35,20 @@ func (m *mapAxis) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 		dx += (size.Width - size.Height) / 2
 	}
 	current_map_size := min(size.Height, size.Width)
-	current_ratio := current_map_size / float32(map_size)
+	current_ratio := current_map_size / float32(MAP_SIZE)
 
-	m.xAxis.Position1 = fyne.NewPos(dx, map_center_y*current_ratio+dy)
-	m.xAxis.Position2 = fyne.NewPos(current_map_size+dx, map_center_y*current_ratio+dy)
+	m.xAxis.Position1 = fyne.NewPos(dx, MAP_CENTER_Y*current_ratio+dy)
+	m.xAxis.Position2 = fyne.NewPos(current_map_size+dx, MAP_CENTER_Y*current_ratio+dy)
 
-	m.yAxis.Position1 = fyne.NewPos(map_center_x*current_ratio+dx, dy)
-	m.yAxis.Position2 = fyne.NewPos(map_center_x*current_ratio+dx, current_map_size+dy)
+	m.yAxis.Position1 = fyne.NewPos(MAP_CENTER_X*current_ratio+dx, dy)
+	m.yAxis.Position2 = fyne.NewPos(MAP_CENTER_X*current_ratio+dx, current_map_size+dy)
 
-	m.xText.Move(fyne.NewPos(current_map_size+dx-43, map_center_y*current_ratio+dy))
-	m.yText.Move(fyne.NewPos(map_center_x*current_ratio+3+dx, dy+1))
+	m.xText.Move(fyne.NewPos(current_map_size+dx-43, MAP_CENTER_Y*current_ratio+dy))
+	m.yText.Move(fyne.NewPos(MAP_CENTER_X*current_ratio+3+dx, dy+1))
 }
 
 // MinSize finds the smallest size that satisfies all the child objects.
 func (m *mapAxis) MinSize(objects []fyne.CanvasObject) fyne.Size {
-	minSize := fyne.NewSize(map_minimum_display_size, map_minimum_display_size)
+	minSize := fyne.NewSize(MAP_MINIMUM_DISPLAY_SIZE, MAP_MINIMUM_DISPLAY_SIZE)
 	return minSize
 }

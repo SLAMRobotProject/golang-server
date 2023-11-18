@@ -1,20 +1,20 @@
 package main
 
 // MQTT
-//"broker.emqx.io" can be used for testing. The program does not run unless it connects to a broker.
-const broker = "slam" //"broker.emqx.io"
-const port = 1883
+//"BROKER.emqx.io" can be used for testing. The program does not run unless it connects to a BROKER.
+const BROKER = "slam" //"BROKER.emqx.io"
+const PORT = 1883
 
 // MAP
-const map_size = 400              //cm, 400x400 squares
-const map_center_x = map_size / 2 //cm (origin is at the top left corner)
-const map_center_y = map_size / 2 //cm (origin is at the top left corner)
+const MAP_SIZE = 400              //cm, 400x400 squares
+const MAP_CENTER_X = MAP_SIZE / 2 //cm (origin is at the top left corner)
+const MAP_CENTER_Y = MAP_SIZE / 2 //cm (origin is at the top left corner)
 
 // ROBOT
-const irSensor_maxDistance = 50 //cm
+const IR_SENSOR_MAX_DISTANCE = 50 //cm
 
 // GUI
-const gui_frame_rate = 5             //fps
-const map_minimum_display_size = 400 //px
-const window_breadth = 650           //px
-const window_height = 400            //px
+const GUI_FRAME_RATE = 5             //fps
+const MAP_MINIMUM_DISPLAY_SIZE = 400 //px
+const WINDOW_BREADTH = 650           //px
+const WINDOW_HEIGHT = 400            //px
