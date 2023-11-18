@@ -5,9 +5,9 @@ import (
 	"os"
 )
 
-var g_generalLogger *log.Logger = general_logger_init()
+var g_generalLogger *log.Logger = init_generalLogger()
 
-func general_logger_init() *log.Logger {
+func init_generalLogger() *log.Logger {
 	// Flags: Create if needed, write only, remove contents. 0666 is read/write permission for everyone.
 	file, err := os.OpenFile("general.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
 	if err != nil {
