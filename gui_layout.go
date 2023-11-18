@@ -1,6 +1,7 @@
 package main
 
 import (
+	"image/color"
 	"strconv"
 
 	"fyne.io/fyne/v2"
@@ -10,12 +11,7 @@ import (
 
 ////////////////////////////////
 // Single robot
-///////////////////////////////
-
-//onst wheel_distance = 16 // the length of the line symbolizing the wheels
-// const wheel_breadth = 3
-// const robot_lenth = 20
-// const robot_breadth = 10
+////////////////////////////////
 
 type robotLayout struct {
 	lines            [3]*canvas.Line
@@ -52,7 +48,7 @@ func (m *robotLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 
 func (m *robotLayout) Rotate(theta_deg float64) {
 	if theta_deg != m.current_rotation {
-		diff_theta := -(theta_deg - m.current_rotation) //negative because the rotation is clockwise (flipped axis)
+		diff_theta := -(theta_deg - m.current_rotation) //negative because the rotation is clockwise (flipped y-axis)
 		for _, line := range m.lines {
 			x, y := rotate(float64(line.Position1.X), float64(line.Position1.Y), float64(diff_theta))
 			line.Position1.X, line.Position1.Y = float32(x), float32(y)
@@ -62,6 +58,19 @@ func (m *robotLayout) Rotate(theta_deg float64) {
 		}
 		m.current_rotation = theta_deg
 	}
+}
+
+func line_init(
+	color color.Color,
+	pos1 fyne.Position,
+	pos2 fyne.Position,
+	strokeWidth float32,
+) *canvas.Line {
+	l := canvas.NewLine(color)
+	l.Position1 = pos1
+	l.Position2 = pos2
+	l.StrokeWidth = strokeWidth
+	return l
 }
 
 func robot_init() *robotLayout {
@@ -168,4 +177,9 @@ func NewMultiRobotHandle() *multiRobotHandle {
 	multiRobot_layout := NewMultiRobotLayout()
 	multiRobot_container := container.New(multiRobot_layout)
 	return &multiRobotHandle{multiRobot_layout, multiRobot_container}
+}
+
+func multi_robot_init() *multiRobotHandle {
+	multiRobot_handle := NewMultiRobotHandle()
+	return multiRobot_handle
 }

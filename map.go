@@ -22,6 +22,10 @@ type Robot struct {
 	x_init, y_init, theta_init int
 }
 
+func NewRobot(x, y, theta int) *Robot {
+	return &Robot{x, y, theta, x, y, theta}
+}
+
 type Backend struct {
 	Map         [map_size][map_size]uint8
 	multi_robot []Robot
@@ -81,7 +85,7 @@ func thread_backend(
 		case msg := <-ch_robotInit:
 			id := msg[0]
 			backend.id2index[id] = len(backend.multi_robot)
-			backend.multi_robot = append(backend.multi_robot, Robot{msg[1], msg[2], msg[3], msg[1], msg[2], msg[3]})
+			backend.multi_robot = append(backend.multi_robot, *NewRobot(msg[1], msg[2], msg[3])) //TODO Robot{msg[1], msg[2], msg[3], msg[1], msg[2], msg[3]})
 			delete(pending_init, id)
 			time.Sleep(time.Second * 10)
 		}
@@ -106,6 +110,7 @@ func (b *Backend) find_closest_robot(x, y int) int {
 
 }
 
+// TODO might put in utility, used in many files
 func rotate(x_in, y_in, theta float64) (float64, float64) {
 	//rotate the point around origo. Theta is given in degrees.
 	theta_rad := theta * math.Pi / 180
@@ -139,7 +144,7 @@ func (b *Backend) irSensor_scaleRotateTranselate(id, x_bodyFrame, y_bodyFrame in
 	theta := b.multi_robot[b.id2index[id]].theta
 	x_bodyFrame_rotated, y_bodyFrame_rotated := rotate(float64(x_bodyFrame), float64(y_bodyFrame), float64(theta))
 
-	//scale and transelate, and change axis to properly represent the map
+	//scale and transelate
 	x_map := math.Round(x_bodyFrame_rotated/10) + float64(b.multi_robot[b.id2index[id]].x)
 	y_map := math.Round(y_bodyFrame_rotated/10) + float64(b.multi_robot[b.id2index[id]].y)
 
@@ -187,6 +192,12 @@ func bresenham_algorithm(x0, y0, x1, y1 int) [][]int {
 	return points
 }
 
+// TODO might put in utility
+func get_map_index(x, y int) (int, int) {
+	//Input is given in map coordinates, i.e. robot positions. With normal axis and origo as defined in the config.
+	return map_center_x + x, map_center_y - y
+}
+
 func (b *Backend) add_line(id, x1, y1 int) {
 	//x0, y0, x1, y1 is given in map coordinates. With origo as defined in the config.
 
@@ -209,7 +220,8 @@ func (b *Backend) add_line(id, x1, y1 int) {
 	}
 
 	//get map index values
-	x0_idx, y0_idx, x1_idx, y1_idx := map_center_x+x0, map_center_y-y0, map_center_x+x1, map_center_y-y1
+	x0_idx, y0_idx := get_map_index(x0, y0)
+	x1_idx, y1_idx := get_map_index(x1, y1)
 	//get values in map range
 	x1_idx = min(max(x1_idx, 0), map_size-1)
 	y1_idx = min(max(y1_idx, 0), map_size-1)

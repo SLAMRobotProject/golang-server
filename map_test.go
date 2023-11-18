@@ -59,26 +59,30 @@ func Test__add_line(t *testing.T) {
 	b := NewBackend()
 	id := 2
 	b.id2index[id] = len(backend.multi_robot)
-	b.multi_robot = append(backend.multi_robot, Robot{x: 0, y: 0, theta: 0})
+	b.multi_robot = append(backend.multi_robot, *NewRobot(0, 0, 90))
 
 	x1, y1 := 20, 20
+	x1_idx, y1_idx := get_map_index(x1, y1)
 	b.add_line(id, x1, y1)
-	if b.Map[20+map_center_x][20+map_center_y] != map_obstacle {
+	if b.Map[x1_idx][y1_idx] != map_obstacle {
 		t.Errorf("Function add_line did not add obstacle to map correctly.")
 	}
 
 	x1, y1 = -20, -20
+	x1_mod_idx, y1_mod_idx := get_map_index(x1+1, y1+1) //modified to test the point before the obstacle
 	b.add_line(id, x1, y1)
-	if b.Map[map_center_x-19][map_center_y-19] != map_open {
+	if b.Map[x1_mod_idx][y1_mod_idx] != map_open {
 		t.Errorf("Function add_line did not add line to map correctly.")
 	}
 
 	x1, y1 = 40, 40
-	if b.Map[x1+map_center_x][y1+map_center_y] == map_unknown {
+	x1_idx, y1_idx = get_map_index(x1, y1)
+	if b.Map[x1_idx][y1_idx] == map_unknown {
 		b.add_line(id, x1, y1)
-		if math.Sqrt(float64(x1*x1+y1*y1)) > irSensor_maxDistance && b.Map[x1+map_center_x][y1+map_center_y] != map_unknown {
+		x1_mod_idx, y1_mod_idx = get_map_index(21, 21) //modified to respect a max distance of 30
+		if math.Sqrt(float64(x1*x1+y1*y1)) > irSensor_maxDistance && b.Map[x1_idx][y1_idx] != map_unknown {
 			t.Errorf("Function add_line did not respect the max distance.")
-		} else if b.Map[21+map_center_x][21+map_center_y] != map_open {
+		} else if b.Map[x1_mod_idx][y1_mod_idx] != map_open {
 			t.Errorf("Function add_line did not add line to map correctly.")
 		}
 	} else {
@@ -90,9 +94,9 @@ func Test__add_irSensorData(t *testing.T) {
 	b := NewBackend()
 	id := 2
 	b.id2index[id] = len(backend.multi_robot)
-	b.multi_robot = append(backend.multi_robot, Robot{x: 0, y: 0, theta: 0})
+	b.multi_robot = append(backend.multi_robot, *NewRobot(0, 0, 90))
 
-	irX, irY := 500, 500 //written in milimeters, while the map is in centimeters
+	irX, irY := 500, 500 //written in milimeters (because of the robot code), while the map is in centimeters
 	b.add_irSensorData(id, irX, irY)
 	if b.Map[map_center_x+21][map_center_y-21] != map_open {
 		t.Errorf("Function add_irSensorData did not add line to map correctly.#1")
@@ -109,9 +113,9 @@ func Test__add_irSensorData(t *testing.T) {
 	}
 
 	irX, irY = 1000, 1000
-	b.multi_robot[b.id2index[id]].x = 150
+	b.multi_robot[b.id2index[id]].x = -150
 	b.add_irSensorData(id, irX, irY)
-	if b.Map[map_center_x+150+21][map_center_y-21] == map_open {
+	if b.Map[map_center_x+21][map_center_y+150-21] == map_open {
 		t.Errorf("Function add_irSensorData did not respect the max distance. #3")
 	}
 }
