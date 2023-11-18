@@ -69,8 +69,6 @@ func thread_backend(
 				backend.multi_robot[index].y = int(new_y) + backend.multi_robot[index].y_init
 				backend.multi_robot[index].theta = msg.theta + backend.multi_robot[index].theta_init
 
-				//TODO fmt.Print("x: ", backend.multi_robot[index].x, " y: ", backend.multi_robot[index].y, " theta: ", backend.multi_robot[index].theta, "\n")
-
 				//map update, dependent upon an updated robot
 				backend.add_irSensorData(msg.id, msg.ir1x, msg.ir1y)
 				backend.add_irSensorData(msg.id, msg.ir2x, msg.ir2y)
@@ -85,7 +83,7 @@ func thread_backend(
 		case msg := <-ch_robotInit:
 			id := msg[0]
 			backend.id2index[id] = len(backend.multi_robot)
-			backend.multi_robot = append(backend.multi_robot, *NewRobot(msg[1], msg[2], msg[3])) //TODO Robot{msg[1], msg[2], msg[3], msg[1], msg[2], msg[3]})
+			backend.multi_robot = append(backend.multi_robot, *NewRobot(msg[1], msg[2], msg[3]))
 			delete(pending_init, id)
 			time.Sleep(time.Second * 10)
 		}
@@ -108,15 +106,6 @@ func (b *Backend) find_closest_robot(x, y int) int {
 	}
 	return closest_robot
 
-}
-
-// TODO might put in utility, used in many files
-func rotate(x_in, y_in, theta float64) (float64, float64) {
-	//rotate the point around origo. Theta is given in degrees.
-	theta_rad := theta * math.Pi / 180
-	x_out := x_in*math.Cos(theta_rad) - y_in*math.Sin(theta_rad)
-	y_out := x_in*math.Sin(theta_rad) + y_in*math.Cos(theta_rad)
-	return x_out, y_out
 }
 
 func (b *Backend) get_x(id int) int {
@@ -149,53 +138,6 @@ func (b *Backend) irSensor_scaleRotateTranselate(id, x_bodyFrame, y_bodyFrame in
 	y_map := math.Round(y_bodyFrame_rotated/10) + float64(b.multi_robot[b.id2index[id]].y)
 
 	return int(x_map), int(y_map)
-}
-
-func bresenham_algorithm(x0, y0, x1, y1 int) [][]int {
-	dx := math.Abs(float64(x1 - x0))
-	//sx = x0 < x1 ? 1 : -1
-	sx := 1
-	if x0 > x1 {
-		sx = -1
-	}
-	dy := -math.Abs(float64(y1 - y0))
-	//sy = y0 < y1 ? 1 : -1
-	sy := 1
-	if y0 > y1 {
-		sy = -1
-	}
-
-	err := dx + dy
-	points := make([][]int, 0)
-
-	for {
-		points = append(points, []int{x0, y0})
-		if x0 == x1 && y0 == y1 {
-			break
-		}
-		e2 := 2 * err
-		if e2 >= dy {
-			if x0 == x1 {
-				break
-			}
-			err = err + dy
-			x0 = x0 + sx
-		}
-		if e2 <= dx {
-			if y0 == y1 {
-				break
-			}
-			err = err + dx
-			y0 = y0 + sy
-		}
-	}
-	return points
-}
-
-// TODO might put in utility
-func get_map_index(x, y int) (int, int) {
-	//Input is given in map coordinates, i.e. robot positions. With normal axis and origo as defined in the config.
-	return map_center_x + x, map_center_y - y
 }
 
 func (b *Backend) add_line(id, x1, y1 int) {
@@ -237,4 +179,9 @@ func (b *Backend) add_line(id, x1, y1 int) {
 	if obstruction {
 		b.Map[x1_idx][y1_idx] = map_obstacle
 	}
+}
+
+func get_map_index(x, y int) (int, int) {
+	//Input is given in map coordinates (i.e. robot positions) with normal axis and origo as defined in the config.
+	return map_center_x + x, map_center_y - y
 }

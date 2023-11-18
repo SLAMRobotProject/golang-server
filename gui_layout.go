@@ -97,24 +97,7 @@ func NewMultiRobotLayout() *multiRobotLayout {
 
 // Layout is called to pack all child objects into a specified size.
 func (m *multiRobotLayout) Layout(objects []fyne.CanvasObject, new_size fyne.Size) {
-
-	// The map is a square and centered, but we must adjust the position of the robots relative to the top left corner
-	dx, dy := float32(0), float32(0)
-	if new_size.Height > new_size.Width {
-		dy = ((new_size.Height - m.current_size.Height) - (new_size.Width - m.current_size.Width)) / 2
-	} else {
-		dx = ((new_size.Width - m.current_size.Width) - (new_size.Height - m.current_size.Height)) / 2
-	}
-
-	ratio := fyne.Min(new_size.Height, new_size.Width) / fyne.Min(m.current_size.Height, m.current_size.Width)
-
 	for _, child := range objects {
-		//TODO: vudere å fjerne dette fordi det gjøres av seg selv når kartet tegnes på nytt.
-		// TODO: blir faktisk ikke riktig engang hvis man ikke også tar current offset.....
-		// LØSNING? Kan egentlig fjerne alt utenom resize large current_size også da.
-		scale_position := fyne.NewPos(child.Position().X*ratio, child.Position().Y*ratio)
-		offset_position := scale_position.AddXY(dx, dy)
-		child.Move(offset_position)
 		child.Resize(new_size)
 	}
 	m.current_size = new_size
