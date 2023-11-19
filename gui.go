@@ -88,7 +88,7 @@ func thread_guiUpdate(
 	for {
 		select {
 		case <-ch_fps:
-			redraw_map(map_image, get_map())
+			redraw_map(map_image, get_mapState())
 			map_canvas.Refresh()
 			redraw_robots(multi_robot_handle, get_multiRobotState())
 		case id_pending := <-ch_robotPending:
@@ -109,7 +109,7 @@ func redraw_robots(multi_robot_handle *multiRobotHandle, multi_robot []robotStat
 	if len(multi_robot) > multi_robot_handle.NumRobots() {
 		for i := multi_robot_handle.NumRobots(); i < len(multi_robot); i++ {
 			//find ID
-			for id, index := range get_id2index() {
+			for id, index := range get_id2indexState() {
 				if index == i {
 					multi_robot_handle.AddRobot(id)
 					break
@@ -192,7 +192,7 @@ func init_automaticInput(ch_publish chan<- [3]int) *fyne.Container {
 			}
 
 			//convert to mm because robot uses mm, and rotate back from init to get robot body coordinates
-			robot := get_robot(id)
+			robot := get_robotState(id)
 			x_robotBody, y_robotBody := rotate(float64(x-robot.x_init)*10, float64(y-robot.y_init)*10, -float64(robot.theta_init))
 			ch_publish <- [3]int{id, int(x_robotBody), int(y_robotBody)}
 			g_generalLogger.Println("Publishing automatic input to robot with ID: ", id, " x: ", x, " y: ", y, ".")
@@ -215,7 +215,7 @@ func init_manualInputTab(ch_publish chan<- [3]int, id int) *fyne.Container {
 		y, errY := strconv.Atoi(input_y.Text)
 		if errX == nil && errY == nil {
 			//convert to mm because robot uses mm, and rotate back from init to get robot body coordinates
-			robot := get_robot(id)
+			robot := get_robotState(id)
 			x_robotBody, y_robotBody := rotate(float64(x-robot.x_init)*10, float64(y-robot.y_init)*10, -float64(robot.theta_init))
 			ch_publish <- [3]int{id, int(x_robotBody), int(y_robotBody)}
 			g_generalLogger.Println("Publishing manual input to robot with ID: ", id, " x: ", x, " y: ", y, ".")

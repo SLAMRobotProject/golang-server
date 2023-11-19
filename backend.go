@@ -63,11 +63,11 @@ func thread_backend(
 				ch_robotPending <- msg.id //Buffered channel, so it will not block.
 			} else {
 				//robot update
-				new_x, new_y := rotate(float64(msg.x/10), float64(msg.y/10), float64(get_robot(msg.id).theta_init))
+				new_x, new_y := rotate(float64(msg.x/10), float64(msg.y/10), float64(get_robotState(msg.id).theta_init))
 				index := g_fullSlamState.id2index[msg.id]
-				g_fullSlamState.multi_robot[index].x = int(new_x) + get_robot(msg.id).x_init
-				g_fullSlamState.multi_robot[index].y = int(new_y) + get_robot(msg.id).y_init
-				g_fullSlamState.multi_robot[index].theta = msg.theta + get_robot(msg.id).theta_init
+				g_fullSlamState.multi_robot[index].x = int(new_x) + get_robotState(msg.id).x_init
+				g_fullSlamState.multi_robot[index].y = int(new_y) + get_robotState(msg.id).y_init
+				g_fullSlamState.multi_robot[index].theta = msg.theta + get_robotState(msg.id).theta_init
 
 				//map update, dependent upon an updated robot
 				g_fullSlamState.irSensorData_add(msg.id, msg.ir1x, msg.ir1y)
@@ -76,7 +76,7 @@ func thread_backend(
 				g_fullSlamState.irSensorData_add(msg.id, msg.ir4x, msg.ir4y)
 				//log position
 				if msg.x != prev_msg.x || msg.y != prev_msg.y || msg.theta != prev_msg.theta {
-					position_logger.Printf("%d %d %d %d\n", msg.id, get_robot(msg.id).x, get_robot(msg.id).y, get_robot(msg.id).theta)
+					position_logger.Printf("%d %d %d %d\n", msg.id, get_robotState(msg.id).x, get_robotState(msg.id).y, get_robotState(msg.id).theta)
 				}
 			}
 			prev_msg = msg
@@ -112,14 +112,19 @@ func find_closest_robot(x, y int) int {
 func get_multiRobotState() []robotState {
 	return g_fullSlamState.multi_robot
 }
-func get_robot(id int) robotState {
+func get_robotState(id int) robotState {
 	return g_fullSlamState.multi_robot[g_fullSlamState.id2index[id]]
 }
-func get_map() [MAP_SIZE][MAP_SIZE]uint8 {
+
+func get_mapState() [MAP_SIZE][MAP_SIZE]uint8 {
 	return g_fullSlamState.Map
 }
-func get_id2index() map[int]int {
+func get_id2indexState() map[int]int {
 	return g_fullSlamState.id2index
+}
+
+func (s *fullSlamState) get_robot(id int) robotState {
+	return s.multi_robot[s.id2index[id]]
 }
 
 func (s *fullSlamState) irSensorData_add(id, irX, irY int) {
@@ -147,8 +152,8 @@ func (s *fullSlamState) irSensorData_scaleRotateTranselate(id, x_bodyFrame, y_bo
 func (s *fullSlamState) add_line(id, x1, y1 int) {
 	//x0, y0, x1, y1 is given in map coordinates. With origo as defined in the config.
 
-	x0 := get_robot(id).x
-	y0 := get_robot(id).y
+	x0 := s.get_robot(id).x
+	y0 := s.get_robot(id).y
 
 	line_length := math.Sqrt(math.Pow(float64(x0-x1), 2) + math.Pow(float64(y0-y1), 2))
 
@@ -166,8 +171,8 @@ func (s *fullSlamState) add_line(id, x1, y1 int) {
 	}
 
 	//get map index values
-	x0_idx, y0_idx := get_mapIndex(x0, y0)
-	x1_idx, y1_idx := get_mapIndex(x1, y1)
+	x0_idx, y0_idx := calculate_mapIndex(x0, y0)
+	x1_idx, y1_idx := calculate_mapIndex(x1, y1)
 	//get values in map range
 	x1_idx = min(max(x1_idx, 0), MAP_SIZE-1)
 	y1_idx = min(max(y1_idx, 0), MAP_SIZE-1)
@@ -185,7 +190,7 @@ func (s *fullSlamState) add_line(id, x1, y1 int) {
 	}
 }
 
-func get_mapIndex(x, y int) (int, int) {
+func calculate_mapIndex(x, y int) (int, int) {
 	//Input is given in map coordinates (i.e. robot positions) with normal axis and origo as defined in the config.
 	return MAP_CENTER_X + x, MAP_CENTER_Y - y
 }

@@ -62,24 +62,24 @@ func Test__add_line(t *testing.T) {
 	s.multi_robot = append(s.multi_robot, *init_robotState(0, 0, 90))
 
 	x1, y1 := 20, 20
-	x1_idx, y1_idx := get_mapIndex(x1, y1)
+	x1_idx, y1_idx := calculate_mapIndex(x1, y1)
 	s.add_line(id, x1, y1)
 	if s.Map[x1_idx][y1_idx] != MAP_OBSTACLE {
 		t.Errorf("Function add_line did not add obstacle to map correctly.")
 	}
 
 	x1, y1 = -20, -20
-	x1_mod_idx, y1_mod_idx := get_mapIndex(x1+1, y1+1) //modified to test the point before the obstacle
+	x1_mod_idx, y1_mod_idx := calculate_mapIndex(x1+1, y1+1) //modified to test the point before the obstacle
 	s.add_line(id, x1, y1)
 	if s.Map[x1_mod_idx][y1_mod_idx] != MAP_OPEN {
 		t.Errorf("Function add_line did not add line to map correctly.")
 	}
 
 	x1, y1 = 40, 40
-	x1_idx, y1_idx = get_mapIndex(x1, y1)
+	x1_idx, y1_idx = calculate_mapIndex(x1, y1)
 	if s.Map[x1_idx][y1_idx] == MAP_UNKNOWN {
 		s.add_line(id, x1, y1)
-		x1_mod_idx, y1_mod_idx = get_mapIndex(21, 21) //modified to respect a max distance of 30
+		x1_mod_idx, y1_mod_idx = calculate_mapIndex(21, 21) //modified to respect a max distance of 30
 		if math.Sqrt(float64(x1*x1+y1*y1)) > IR_SENSOR_MAX_DISTANCE && s.Map[x1_idx][y1_idx] != MAP_UNKNOWN {
 			t.Errorf("Function add_line did not respect the max distance.")
 		} else if s.Map[x1_mod_idx][y1_mod_idx] != MAP_OPEN {
