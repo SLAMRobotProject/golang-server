@@ -55,7 +55,7 @@ func Test__bresenham_algorithm(t *testing.T) {
 	baseTest__bresenham_algorithm(t, known_points, 0, 0, -5, 3)
 }
 
-func Test__add_line(t *testing.T) {
+func Test__add_lineToMap(t *testing.T) {
 	s := init_fullSlamState()
 	id := 2
 	s.id2index[id] = len(s.multi_robot)
@@ -63,27 +63,27 @@ func Test__add_line(t *testing.T) {
 
 	x1, y1 := 20, 20
 	x1_idx, y1_idx := calculate_mapIndex(x1, y1)
-	s.add_line(id, x1, y1)
+	s.add_lineToMap(id, x1, y1)
 	if s.Map[x1_idx][y1_idx] != MAP_OBSTACLE {
-		t.Errorf("Function add_line did not add obstacle to map correctly.")
+		t.Errorf("Function add_lineToMap did not add obstacle to map correctly.")
 	}
 
 	x1, y1 = -20, -20
 	x1_mod_idx, y1_mod_idx := calculate_mapIndex(x1+1, y1+1) //modified to test the point before the obstacle
-	s.add_line(id, x1, y1)
+	s.add_lineToMap(id, x1, y1)
 	if s.Map[x1_mod_idx][y1_mod_idx] != MAP_OPEN {
-		t.Errorf("Function add_line did not add line to map correctly.")
+		t.Errorf("Function add_lineToMap did not add line to map correctly.")
 	}
 
 	x1, y1 = 40, 40
 	x1_idx, y1_idx = calculate_mapIndex(x1, y1)
 	if s.Map[x1_idx][y1_idx] == MAP_UNKNOWN {
-		s.add_line(id, x1, y1)
+		s.add_lineToMap(id, x1, y1)
 		x1_mod_idx, y1_mod_idx = calculate_mapIndex(21, 21) //modified to respect a max distance of 30
 		if math.Sqrt(float64(x1*x1+y1*y1)) > IR_SENSOR_MAX_DISTANCE && s.Map[x1_idx][y1_idx] != MAP_UNKNOWN {
-			t.Errorf("Function add_line did not respect the max distance.")
+			t.Errorf("Function add_lineToMap did not respect the max distance.")
 		} else if s.Map[x1_mod_idx][y1_mod_idx] != MAP_OPEN {
-			t.Errorf("Function add_line did not add line to map correctly.")
+			t.Errorf("Function add_lineToMap did not add line to map correctly.")
 		}
 	} else {
 		t.Errorf("Could not test max distance, because the point is already known.")

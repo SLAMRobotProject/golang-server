@@ -129,7 +129,7 @@ func (s *fullSlamState) get_robot(id int) robotState {
 
 func (s *fullSlamState) irSensorData_add(id, irX, irY int) {
 	x_map, y_map := s.irSensorData_scaleRotateTranselate(id, irX, irY)
-	s.add_line(id, x_map, y_map)
+	s.add_lineToMap(id, x_map, y_map)
 }
 
 func (s *fullSlamState) irSensorData_scaleRotateTranselate(id, x_bodyFrame, y_bodyFrame int) (int, int) {
@@ -149,9 +149,8 @@ func (s *fullSlamState) irSensorData_scaleRotateTranselate(id, x_bodyFrame, y_bo
 	return int(x_map), int(y_map)
 }
 
-func (s *fullSlamState) add_line(id, x1, y1 int) {
+func (s *fullSlamState) add_lineToMap(id, x1, y1 int) {
 	//x0, y0, x1, y1 is given in map coordinates. With origo as defined in the config.
-
 	x0 := s.get_robot(id).x
 	y0 := s.get_robot(id).y
 
