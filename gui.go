@@ -4,7 +4,6 @@ import (
 	"image"
 	"image/color"
 	"strconv"
-	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -26,10 +25,20 @@ var (
 	BLACK    = color.Black
 )
 
+const (
+	AUTOMATIC_COMMAND = iota
+	MANUAL_COMMAND
+)
+
+type guiCommand struct {
+	command_type int //E.g. AUTOMATIC_COMMAND
+	id, x, y     int
+}
+
 func init_gui(
-	ch_publish chan<- [3]int,
+	ch_g2b_command chan<- guiCommand,
 	ch_receive <-chan advMsg,
-	ch_robotBackendInit chan<- [4]int,
+	ch_g2b_robotInit chan<- [4]int,
 ) (fyne.Window, *image.RGBA, *canvas.Image, *multiRobotHandle, *container.AppTabs, *container.AppTabs) {
 
 	a := app.New()
@@ -53,7 +62,7 @@ func init_gui(
 
 	//input initialization
 	manual_input := container.NewAppTabs()
-	automatic_input := init_automaticInput(ch_publish)
+	automatic_input := init_automaticInput(ch_g2b_command)
 	init_input := container.NewAppTabs()
 	input_tabs := container.NewAppTabs(
 		container.NewTabItem("Init", init_input),
@@ -79,20 +88,20 @@ func thread_guiUpdate(
 	multi_robot_handle *multiRobotHandle,
 	manual_input *container.AppTabs,
 	init_input *container.AppTabs,
-	ch_publish chan<- [3]int,
-	ch_robotBackendInit chan<- [4]int,
-	ch_robotPending <-chan int,
+	ch_g2b_command chan<- guiCommand,
+	ch_g2b_robotInit chan<- [4]int,
+	ch_b2g_robotPendingInit <-chan int,
+	ch_b2g_update <-chan updateGui,
 ) {
 	ch_robotGuiInit := make(chan [4]int, 3)
-	ch_fps := time.Tick(time.Second / GUI_FRAME_RATE)
 	for {
 		select {
-		case <-ch_fps:
-			redraw_map(map_image, get_mapState())
+		case partial_state := <-ch_b2g_update:
+			redraw_map(map_image, partial_state.new_open, partial_state.new_obstacle)
 			map_canvas.Refresh()
-			redraw_robots(multi_robot_handle, get_multiRobotState())
-		case id_pending := <-ch_robotPending:
-			init_input.Append(container.NewTabItem("NRF-"+strconv.Itoa(id_pending), init_initInputTab(ch_robotBackendInit, ch_robotGuiInit, id_pending)))
+			redraw_robots(multi_robot_handle, partial_state.multi_robot, partial_state.id2index)
+		case id_pending := <-ch_b2g_robotPendingInit:
+			init_input.Append(container.NewTabItem("NRF-"+strconv.Itoa(id_pending), init_initInputTab(ch_g2b_robotInit, ch_robotGuiInit, id_pending)))
 		case init := <-ch_robotGuiInit:
 			id := init[0]
 			for i := 0; i < len(init_input.Items); i++ {
@@ -100,16 +109,17 @@ func thread_guiUpdate(
 					init_input.Remove(init_input.Items[i])
 				}
 			}
-			manual_input.Append(container.NewTabItem("NRF-"+strconv.Itoa(id), init_manualInputTab(ch_publish, id)))
+			manual_input.Append(container.NewTabItem("NRF-"+strconv.Itoa(id), init_manualInputTab(ch_g2b_command, id)))
 		}
 	}
 }
 
-func redraw_robots(multi_robot_handle *multiRobotHandle, multi_robot []robotState) {
-	if len(multi_robot) > multi_robot_handle.NumRobots() {
-		for i := multi_robot_handle.NumRobots(); i < len(multi_robot); i++ {
+func redraw_robots(multi_robot_handle *multiRobotHandle, backend_multiRobot []robotState, backend_id2index map[int]int) {
+	backend_num_robots := len(backend_multiRobot)
+	if backend_num_robots > multi_robot_handle.NumRobots() {
+		for i := multi_robot_handle.NumRobots(); i < backend_num_robots; i++ {
 			//find ID
-			for id, index := range get_id2indexState() {
+			for id, index := range backend_id2index {
 				if index == i {
 					multi_robot_handle.AddRobot(id)
 					break
@@ -117,28 +127,22 @@ func redraw_robots(multi_robot_handle *multiRobotHandle, multi_robot []robotStat
 			}
 		}
 	}
-	for i := 0; i < len(multi_robot); i++ {
-		multi_robot_handle.Move(i, fyne.NewPos(float32(multi_robot[i].x), -float32(multi_robot[i].y)))
-		multi_robot_handle.Rotate(i, float64(multi_robot[i].theta))
+	for i := 0; i < backend_num_robots; i++ {
+		multi_robot_handle.Move(i, fyne.NewPos(float32(backend_multiRobot[i].x), -float32(backend_multiRobot[i].y)))
+		multi_robot_handle.Rotate(i, float64(backend_multiRobot[i].theta))
 	}
 }
 
-func redraw_map(map_image *image.RGBA, Map [MAP_SIZE][MAP_SIZE]uint8) {
-	for x := 0; x < MAP_SIZE; x++ {
-		for y := 0; y < MAP_SIZE; y++ {
-			switch Map[x][y] {
-			case MAP_UNKNOWN:
-				map_image.Set(x, y, GRAY)
-			case MAP_OBSTACLE:
-				map_image.Set(x, y, BLACK)
-			case MAP_OPEN:
-				map_image.Set(x, y, WHITE)
-			}
-		}
+func redraw_map(map_image *image.RGBA, new_open [][2]int, new_obstacle [][2]int) {
+	for _, point := range new_open {
+		map_image.Set(point[0], point[1], WHITE)
+	}
+	for _, point := range new_obstacle {
+		map_image.Set(point[0], point[1], BLACK)
 	}
 }
 
-func init_initInputTab(ch_robotBackendInit, ch_robotGuiInit chan<- [4]int, id int) *fyne.Container {
+func init_initInputTab(ch_g2b_robotInit, ch_robotGuiInit chan<- [4]int, id int) *fyne.Container {
 	input_x := widget.NewEntry()
 	input_x.SetPlaceHolder("x [cm]")
 
@@ -155,7 +159,7 @@ func init_initInputTab(ch_robotBackendInit, ch_robotGuiInit chan<- [4]int, id in
 		theta, errTheta := strconv.Atoi(input_theta.Text)
 		if errX == nil && errY == nil && errTheta == nil {
 			//send to backend [cm, cm, degrees]
-			ch_robotBackendInit <- [4]int{id, x, y, theta}
+			ch_g2b_robotInit <- [4]int{id, x, y, theta}
 			ch_robotGuiInit <- [4]int{id, x, y, theta}
 			g_generalLogger.Println("Initializing robot with ID: ", id, " x: ", x, " y: ", y, " theta: ", theta, ".")
 		} else {
@@ -167,7 +171,7 @@ func init_initInputTab(ch_robotBackendInit, ch_robotGuiInit chan<- [4]int, id in
 
 	default_button := widget.NewButton("Default [0, 0, 90]", func() {
 		x, y, theta := 0, 0, 90
-		ch_robotBackendInit <- [4]int{id, x, y, theta}
+		ch_g2b_robotInit <- [4]int{id, x, y, theta}
 		ch_robotGuiInit <- [4]int{id, x, y, theta}
 
 	})
@@ -176,7 +180,7 @@ func init_initInputTab(ch_robotBackendInit, ch_robotGuiInit chan<- [4]int, id in
 	return init_container
 }
 
-func init_automaticInput(ch_publish chan<- [3]int) *fyne.Container {
+func init_automaticInput(ch_g2b_command chan<- guiCommand) *fyne.Container {
 	input_x := widget.NewEntry()
 	input_x.SetPlaceHolder("x [cm]")
 	input_y := widget.NewEntry()
@@ -185,17 +189,7 @@ func init_automaticInput(ch_publish chan<- [3]int) *fyne.Container {
 		x, errX := strconv.Atoi(input_x.Text)
 		y, errY := strconv.Atoi(input_y.Text)
 		if errX == nil && errY == nil {
-			id := find_closest_robot(x, y)
-			if id == -1 {
-				//already logged in find_closest_robot()
-				return
-			}
-
-			//convert to mm because robot uses mm, and rotate back from init to get robot body coordinates
-			robot := get_robotState(id)
-			x_robotBody, y_robotBody := rotate(float64(x-robot.x_init)*10, float64(y-robot.y_init)*10, -float64(robot.theta_init))
-			ch_publish <- [3]int{id, int(x_robotBody), int(y_robotBody)}
-			g_generalLogger.Println("Publishing automatic input to robot with ID: ", id, " x: ", x, " y: ", y, ".")
+			ch_g2b_command <- guiCommand{AUTOMATIC_COMMAND, -1, x, y}
 		} else {
 			println("Invalid input")
 			g_generalLogger.Println("Invalid input. Only integers are allowed.")
@@ -204,7 +198,7 @@ func init_automaticInput(ch_publish chan<- [3]int) *fyne.Container {
 	return automatic_container
 }
 
-func init_manualInputTab(ch_publish chan<- [3]int, id int) *fyne.Container {
+func init_manualInputTab(ch_g2b_command chan<- guiCommand, id int) *fyne.Container {
 	input_x := widget.NewEntry()
 	input_x.SetPlaceHolder("x [cm]")
 	input_y := widget.NewEntry()
@@ -214,11 +208,7 @@ func init_manualInputTab(ch_publish chan<- [3]int, id int) *fyne.Container {
 		x, errX := strconv.Atoi(input_x.Text)
 		y, errY := strconv.Atoi(input_y.Text)
 		if errX == nil && errY == nil {
-			//convert to mm because robot uses mm, and rotate back from init to get robot body coordinates
-			robot := get_robotState(id)
-			x_robotBody, y_robotBody := rotate(float64(x-robot.x_init)*10, float64(y-robot.y_init)*10, -float64(robot.theta_init))
-			ch_publish <- [3]int{id, int(x_robotBody), int(y_robotBody)}
-			g_generalLogger.Println("Publishing manual input to robot with ID: ", id, " x: ", x, " y: ", y, ".")
+			ch_g2b_command <- guiCommand{MANUAL_COMMAND, id, x, y}
 		} else {
 			println("Invalid input")
 			g_generalLogger.Println("Invalid input. Only integers are allowed.")

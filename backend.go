@@ -5,11 +5,6 @@ import (
 	"time"
 )
 
-// Global variable, because it is too large to be passed over channels.
-// Writers: only thread_backend.
-// Data races will only cause a short delay in the GUI update, so it is not a problem.
-var g_fullSlamState *fullSlamState = init_fullSlamState()
-
 // using binary flags to represent the map to allow bitwise operations
 const (
 	MAP_OPEN     uint8 = 1 << iota //1
@@ -27,9 +22,11 @@ func init_robotState(x, y, theta int) *robotState {
 }
 
 type fullSlamState struct {
-	Map         [MAP_SIZE][MAP_SIZE]uint8
-	multi_robot []robotState
-	id2index    map[int]int
+	Map          [MAP_SIZE][MAP_SIZE]uint8
+	new_obstacle [][2]int //new since last gui update
+	new_open     [][2]int //new since last gui update
+	multi_robot  []robotState
+	id2index     map[int]int
 }
 
 func init_fullSlamState() *fullSlamState {
@@ -44,58 +41,95 @@ func init_fullSlamState() *fullSlamState {
 	return &s
 }
 
+// The map is very large and sending it gives a warning. This only sends updates.
+type updateGui struct {
+	multi_robot  []robotState
+	id2index     map[int]int
+	new_open     [][2]int
+	new_obstacle [][2]int
+}
+
 func thread_backend(
 	ch_publish chan<- [3]int,
-	ch_robotPending chan<- int,
+	ch_b2g_robotPendingInit chan<- int,
 	ch_receive <-chan advMsg,
 	ch_robotInit <-chan [4]int,
+	ch_g2b_command <-chan guiCommand,
+	ch_b2g_update chan<- updateGui,
 ) {
+	var state *fullSlamState = init_fullSlamState()
+
 	prev_msg := advMsg{}
 	position_logger := init_positionLogger()
 	pending_init := map[int]struct{}{} //simple and efficient way in golang to create a set to check values.
+	ch_updateGui_ticker := time.Tick(time.Second / GUI_FRAME_RATE)
 	for {
 		select {
+		case <-ch_updateGui_ticker:
+			//update gui
+			ch_b2g_update <- updateGui{state.multi_robot, state.id2index, state.new_open, state.new_obstacle}
+			//reset new_open and new_obstacle
+			state.new_open = [][2]int{}
+			state.new_obstacle = [][2]int{}
+		case command := <-ch_g2b_command:
+			switch command.command_type {
+			case AUTOMATIC_COMMAND:
+				id := state.find_closest_robot(command.x, command.y)
+				if id == -1 {
+					//already logged in find_closest_robot()
+					return
+				}
+				//convert to mm because robot uses mm, and rotate back from init to get robot body coordinates
+				robot := state.get_robot(id)
+				x_robotBody, y_robotBody := rotate(float64(command.x-robot.x_init)*10, float64(command.y-robot.y_init)*10, -float64(robot.theta_init))
+				ch_publish <- [3]int{id, int(x_robotBody), int(y_robotBody)}
+				g_generalLogger.Println("Publishing automatic input to robot with ID: ", command.id, " x: ", command.x, " y: ", command.y, ".")
+			case MANUAL_COMMAND:
+				//convert to mm because robot uses mm, and rotate back from init to get robot body coordinates
+				robot := state.get_robot(command.id)
+				x_robotBody, y_robotBody := rotate(float64(command.x-robot.x_init)*10, float64(command.y-robot.y_init)*10, -float64(robot.theta_init))
+				ch_publish <- [3]int{command.id, int(x_robotBody), int(y_robotBody)}
+				g_generalLogger.Println("Publishing manual input to robot with ID: ", command.id, " x: ", command.x, " y: ", command.y, ".")
+			}
 		case msg := <-ch_receive:
 			if _, exist := pending_init[msg.id]; exist {
 				//skip
-			} else if _, exist := g_fullSlamState.id2index[msg.id]; !exist {
+			} else if _, exist := state.id2index[msg.id]; !exist {
 				pending_init[msg.id] = struct{}{}
-				ch_robotPending <- msg.id //Buffered channel, so it will not block.
+				ch_b2g_robotPendingInit <- msg.id //Buffered channel, so it will not block.
 			} else {
 				//robot update
-				new_x, new_y := rotate(float64(msg.x/10), float64(msg.y/10), float64(get_robotState(msg.id).theta_init))
-				index := g_fullSlamState.id2index[msg.id]
-				g_fullSlamState.multi_robot[index].x = int(new_x) + get_robotState(msg.id).x_init
-				g_fullSlamState.multi_robot[index].y = int(new_y) + get_robotState(msg.id).y_init
-				g_fullSlamState.multi_robot[index].theta = msg.theta + get_robotState(msg.id).theta_init
+				new_x, new_y := rotate(float64(msg.x/10), float64(msg.y/10), float64(state.get_robot(msg.id).theta_init))
+				index := state.id2index[msg.id]
+				state.multi_robot[index].x = int(new_x) + state.get_robot(msg.id).x_init
+				state.multi_robot[index].y = int(new_y) + state.get_robot(msg.id).y_init
+				state.multi_robot[index].theta = msg.theta + state.get_robot(msg.id).theta_init
 
 				//map update, dependent upon an updated robot
-				g_fullSlamState.irSensorData_add(msg.id, msg.ir1x, msg.ir1y)
-				g_fullSlamState.irSensorData_add(msg.id, msg.ir2x, msg.ir2y)
-				g_fullSlamState.irSensorData_add(msg.id, msg.ir3x, msg.ir3y)
-				g_fullSlamState.irSensorData_add(msg.id, msg.ir4x, msg.ir4y)
+				state.irSensorData_add(msg.id, msg.ir1x, msg.ir1y)
+				state.irSensorData_add(msg.id, msg.ir2x, msg.ir2y)
+				state.irSensorData_add(msg.id, msg.ir3x, msg.ir3y)
+				state.irSensorData_add(msg.id, msg.ir4x, msg.ir4y)
 				//log position
 				if msg.x != prev_msg.x || msg.y != prev_msg.y || msg.theta != prev_msg.theta {
-					position_logger.Printf("%d %d %d %d\n", msg.id, get_robotState(msg.id).x, get_robotState(msg.id).y, get_robotState(msg.id).theta)
+					position_logger.Printf("%d %d %d %d\n", msg.id, state.get_robot(msg.id).x, state.get_robot(msg.id).y, state.get_robot(msg.id).theta)
 				}
 			}
 			prev_msg = msg
-		case msg := <-ch_robotInit:
-			id := msg[0]
-			g_fullSlamState.id2index[id] = len(get_multiRobotState())
-			g_fullSlamState.multi_robot = append(g_fullSlamState.multi_robot, *init_robotState(msg[1], msg[2], msg[3]))
+		case init := <-ch_robotInit:
+			id := init[0]
+			state.id2index[id] = len(state.multi_robot)
+			state.multi_robot = append(state.multi_robot, *init_robotState(init[1], init[2], init[3]))
 			delete(pending_init, id)
-			time.Sleep(time.Second * 10)
 		}
 	}
 }
 
-func find_closest_robot(x, y int) int {
-	s := g_fullSlamState
+func (s *fullSlamState) find_closest_robot(x, y int) int {
 	//find the robot closest to the given point
 	min_distance := math.MaxFloat64
 	closest_robot := -1
-	for id, index := range g_fullSlamState.id2index {
+	for id, index := range s.id2index {
 		distance := math.Sqrt(math.Pow(float64(s.multi_robot[index].x-x), 2) + math.Pow(float64(s.multi_robot[index].y-y), 2))
 		if distance < min_distance {
 			min_distance = distance
@@ -106,21 +140,16 @@ func find_closest_robot(x, y int) int {
 		g_generalLogger.Println("Tried to find closest robot, but no robots were found.")
 	}
 	return closest_robot
-
 }
 
-func get_multiRobotState() []robotState {
-	return g_fullSlamState.multi_robot
-}
-func get_robotState(id int) robotState {
-	return g_fullSlamState.multi_robot[g_fullSlamState.id2index[id]]
-}
-
-func get_mapState() [MAP_SIZE][MAP_SIZE]uint8 {
-	return g_fullSlamState.Map
-}
-func get_id2indexState() map[int]int {
-	return g_fullSlamState.id2index
+func (s *fullSlamState) set_mapValue(x, y int, value uint8) {
+	s.Map[x][y] = value
+	switch value {
+	case MAP_OPEN:
+		s.new_open = append(s.new_open, [2]int{x, y})
+	case MAP_OBSTACLE:
+		s.new_obstacle = append(s.new_obstacle, [2]int{x, y})
+	}
 }
 
 func (s *fullSlamState) get_robot(id int) robotState {
@@ -182,10 +211,10 @@ func (s *fullSlamState) add_lineToMap(id, x1, y1 int) {
 	for i := 0; i < len(idx_points); i++ {
 		x := idx_points[i][0]
 		y := idx_points[i][1]
-		s.Map[x][y] = MAP_OPEN
+		s.set_mapValue(x, y, MAP_OPEN)
 	}
 	if obstruction {
-		s.Map[x1_idx][y1_idx] = MAP_OBSTACLE
+		s.set_mapValue(x1_idx, y1_idx, MAP_OBSTACLE)
 	}
 }
 
