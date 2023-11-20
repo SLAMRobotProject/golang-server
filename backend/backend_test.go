@@ -1,6 +1,8 @@
-package main
+package backend
 
 import (
+	"golang-server/config"
+	"golang-server/utilities"
 	"math"
 	"testing"
 )
@@ -30,7 +32,7 @@ func confirm_bresenham_output(known_points, calculated_points [][]int) bool {
 
 func baseTest__bresenham_algorithm(t *testing.T, known_points [][]int, x0, y0, x1, y1 int) bool {
 	success := true
-	calculated_points := bresenham_algorithm(x0, y0, x1, y1)
+	calculated_points := utilities.Bresenham_algorithm(x0, y0, x1, y1)
 	if len(calculated_points) != len(known_points) {
 		success = false
 	} else {
@@ -80,7 +82,7 @@ func Test__add_lineToMap(t *testing.T) {
 	if s.Map[x1_idx][y1_idx] == MAP_UNKNOWN {
 		s.add_lineToMap(id, x1, y1)
 		x1_mod_idx, y1_mod_idx = calculate_mapIndex(21, 21) //modified to respect a max distance of 30
-		if math.Sqrt(float64(x1*x1+y1*y1)) > IR_SENSOR_MAX_DISTANCE && s.Map[x1_idx][y1_idx] != MAP_UNKNOWN {
+		if math.Sqrt(float64(x1*x1+y1*y1)) > config.IR_SENSOR_MAX_DISTANCE && s.Map[x1_idx][y1_idx] != MAP_UNKNOWN {
 			t.Errorf("Function add_lineToMap did not respect the max distance.")
 		} else if s.Map[x1_mod_idx][y1_mod_idx] != MAP_OPEN {
 			t.Errorf("Function add_lineToMap did not add line to map correctly.")
@@ -98,24 +100,24 @@ func Test__irSensorData_add(t *testing.T) {
 
 	irX, irY := 500, 500 //written in milimeters (because of the robot code), while the map is in centimeters
 	s.irSensorData_add(id, irX, irY)
-	if s.Map[MAP_CENTER_X+21][MAP_CENTER_Y-21] != MAP_OPEN {
+	if s.Map[config.MAP_CENTER_X+21][config.MAP_CENTER_Y-21] != MAP_OPEN {
 		t.Errorf("Function irSensorData_add did not add line to map correctly.#1")
 	}
 
 	irX, irY = -200, -200
 	s.irSensorData_add(id, irX, irY)
-	if s.Map[MAP_CENTER_X-19][MAP_CENTER_Y+19] != MAP_OPEN {
+	if s.Map[config.MAP_CENTER_X-19][config.MAP_CENTER_Y+19] != MAP_OPEN {
 		t.Errorf("Function irSensorData_add did not add line to map correctly.#2")
 	}
-	if s.Map[MAP_CENTER_X-20][MAP_CENTER_Y+20] != MAP_OBSTACLE {
-		print(s.Map[MAP_CENTER_X-20][MAP_CENTER_Y+20])
+	if s.Map[config.MAP_CENTER_X-20][config.MAP_CENTER_Y+20] != MAP_OBSTACLE {
+		print(s.Map[config.MAP_CENTER_X-20][config.MAP_CENTER_Y+20])
 		t.Errorf("Function irSensorData_add did not add obstruction.")
 	}
 
 	irX, irY = 1000, 1000
-	s.multi_robot[s.id2index[id]].x = -150
+	s.multi_robot[s.id2index[id]].X = -150
 	s.irSensorData_add(id, irX, irY)
-	if s.Map[MAP_CENTER_X+21][MAP_CENTER_Y+150-21] == MAP_OPEN {
+	if s.Map[config.MAP_CENTER_X+21][config.MAP_CENTER_Y+150-21] == MAP_OPEN {
 		t.Errorf("Function irSensorData_add did not respect the max distance. #3")
 	}
 }

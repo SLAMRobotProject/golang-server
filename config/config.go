@@ -1,7 +1,7 @@
-package main
+package config
 
 // MQTT
-//"broker.emqx.io" can be used for testing. The program does not run unless it connects to a BROKER.
+//"broker.emqx.io" can be used for testing. The program does not run unless it connects to a broker.
 const BROKER = "broker.emqx.io"
 const PORT = 1883
 

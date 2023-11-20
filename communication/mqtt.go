@@ -1,24 +1,27 @@
-package main
+package communication
 
 import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"golang-server/config"
+	"golang-server/log"
+	"golang-server/types"
 	"strconv"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
-func mqtt_init() mqtt.Client {
+func Mqtt_init() mqtt.Client {
 	opts := mqtt.NewClientOptions()
-	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", BROKER, PORT))
+	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", config.BROKER, config.PORT))
 	opts.SetDefaultPublishHandler(messagePubHandler)
 	opts.OnConnect = connectHandler
 	opts.OnConnectionLost = connectLostHandler
 	client := mqtt.NewClient(opts)
 	if token := client.Connect(); token.Wait() && token.Error() != nil {
-		g_generalLogger.Println("Failed to connect to mqtt BROKER. Error: ", token.Error())
+		log.G_generalLogger.Println("Failed to connect to mqtt config.BROKER. Error: ", token.Error())
 		panic(token.Error())
 	}
 	return client
@@ -31,26 +34,22 @@ type advMsgUnpacking struct {
 	valid                                                       bool
 }
 
-type advMsg struct {
-	id, x, y, theta, ir1x, ir1y, ir2x, ir2y, ir3x, ir3y, ir4x, ir4y int
-}
-
 var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
 	fmt.Printf("Received message: %s from topic: %s\n", msg.Payload(), msg.Topic())
-	g_generalLogger.Println("Received message from unsubscribed topic: ", msg.Topic(), " Message: ", msg.Payload())
+	log.G_generalLogger.Println("Received message from unsubscribed topic: ", msg.Topic(), " Message: ", msg.Payload())
 }
 
 var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
-	fmt.Println("Connected to mqtt BROKER")
-	g_generalLogger.Println("Connected to mqtt BROKER")
+	fmt.Println("Connected to mqtt config.BROKER")
+	log.G_generalLogger.Println("Connected to mqtt config.BROKER")
 }
 
 var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err error) {
-	fmt.Printf("Lost connection to mqtt BROKER. Error: %v", err)
-	g_generalLogger.Println("Lost connection to mqtt BROKER. Error: ", err)
+	fmt.Printf("Lost connection to mqtt config.BROKER. Error: %v", err)
+	log.G_generalLogger.Println("Lost connection to mqtt config.BROKER. Error: ", err)
 }
 
-func thread_publish(
+func Thread_publish(
 	client mqtt.Client,
 	ch_publish <-chan [3]int,
 ) {
@@ -71,7 +70,7 @@ func thread_publish(
 }
 
 func adv_messageHandler(
-	ch_incoming_msg chan<- advMsg,
+	ch_incoming_msg chan<- types.AdvMsg,
 ) mqtt.MessageHandler {
 	return func(client mqtt.Client, msg mqtt.Message) {
 		payload := msg.Payload()
@@ -92,27 +91,40 @@ func adv_messageHandler(
 			binary.Read(reader, binary.LittleEndian, &m.ir4y)
 			binary.Read(reader, binary.LittleEndian, &m.valid) //valid is not used in the robot code
 
-			new_msg := advMsg{int(m.id), int(m.x), int(m.y), int(m.theta), int(m.ir1x), int(m.ir1y), int(m.ir2x), int(m.ir2y), int(m.ir3x), int(m.ir3y), int(m.ir4x), int(m.ir4y)}
+			new_msg := types.AdvMsg{
+				Id:    int(m.id),
+				X:     int(m.x),
+				Y:     int(m.y),
+				Theta: int(m.theta),
+				Ir1x:  int(m.ir1x),
+				Ir1y:  int(m.ir1y),
+				Ir2x:  int(m.ir2x),
+				Ir2y:  int(m.ir2y),
+				Ir3x:  int(m.ir3x),
+				Ir3y:  int(m.ir3y),
+				Ir4x:  int(m.ir4x),
+				Ir4y:  int(m.ir4y),
+			}
 
 			ch_incoming_msg <- new_msg
 
 			// One robots sends about 30 messages per second. Uncomment the following lines to see the messages.
 
 			//fmt.Printf("Id: %d, x: %d, y: %d, theta: %d, ir1x: %d, ir1y: %d, ir2x: %d, ir2y: %d, ir3x: %d, ir3y: %d, ir4x: %d, ir4y: %d\n", new_msg.id, new_msg.x, new_msg.y, new_msg.theta, new_msg.ir1x, new_msg.ir1y, new_msg.ir2x, new_msg.ir2y, new_msg.ir3x, new_msg.ir3y, new_msg.ir4x, new_msg.ir4y)
-			//g_generalLogger.Printf("Id: %d, x: %d, y: %d, theta: %d, ir1x: %d, ir1y: %d, ir2x: %d, ir2y: %d, ir3x: %d, ir3y: %d, ir4x: %d, ir4y: %d\n", new_msg.id, new_msg.x, new_msg.y, new_msg.theta, new_msg.ir1x, new_msg.ir1y, new_msg.ir2x, new_msg.ir2y, new_msg.ir3x, new_msg.ir3y, new_msg.ir4x, new_msg.ir4y)
+			//log.G_generalLogger.Printf("Id: %d, x: %d, y: %d, theta: %d, ir1x: %d, ir1y: %d, ir2x: %d, ir2y: %d, ir3x: %d, ir3y: %d, ir4x: %d, ir4y: %d\n", new_msg.id, new_msg.x, new_msg.y, new_msg.theta, new_msg.ir1x, new_msg.ir1y, new_msg.ir2x, new_msg.ir2y, new_msg.ir3x, new_msg.ir3y, new_msg.ir4x, new_msg.ir4y)
 			//fmt.Printf("Id: %d, x: %d, y: %d, theta: %d\n", new_msg.id, new_msg.x, new_msg.y, new_msg.theta)
-			//g_generalLogger.Printf("Id: %d, x: %d, y: %d, theta: %d\n", new_msg.id, new_msg.x, new_msg.y, new_msg.theta)
+			//log.G_generalLogger.Printf("Id: %d, x: %d, y: %d, theta: %d\n", new_msg.id, new_msg.x, new_msg.y, new_msg.theta)
 		}
 	}
 }
 
-func subscribe(
+func Subscribe(
 	client mqtt.Client,
-	ch_incoming_msg chan<- advMsg,
+	ch_incoming_msg chan<- types.AdvMsg,
 ) {
 	topic := "v2/robot/NRF_5/adv"
 	token := client.Subscribe(topic, 1, adv_messageHandler(ch_incoming_msg))
 	token.Wait()
 	fmt.Printf("Subscribed to topic: %s", topic)
-	g_generalLogger.Println("Subscribed to topic: ", topic)
+	log.G_generalLogger.Println("Subscribed to topic: ", topic)
 }

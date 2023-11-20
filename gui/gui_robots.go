@@ -1,6 +1,8 @@
-package main
+package gui
 
 import (
+	"golang-server/config"
+	"golang-server/utilities"
 	"image/color"
 	"strconv"
 
@@ -25,7 +27,7 @@ func init_robotLayout(lines [3]*canvas.Line) *robotLayout {
 
 // Layout is called to pack all child objects into a specified size.
 func (m *robotLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
-	var ratio float32 = fyne.Min(size.Height, size.Width) / MAP_SIZE
+	var ratio float32 = fyne.Min(size.Height, size.Width) / config.MAP_SIZE
 	adjustment := ratio / m.current_ratio
 	for _, line := range m.lines {
 		line.Position1.X *= adjustment
@@ -50,10 +52,10 @@ func (m *robotLayout) Rotate(theta_deg float64) {
 	if theta_deg != m.current_rotation {
 		diff_theta := -(theta_deg - m.current_rotation) //negative because the rotation is clockwise (flipped y-axis)
 		for _, line := range m.lines {
-			x, y := rotate(float64(line.Position1.X), float64(line.Position1.Y), float64(diff_theta))
+			x, y := utilities.Rotate(float64(line.Position1.X), float64(line.Position1.Y), float64(diff_theta))
 			line.Position1.X, line.Position1.Y = float32(x), float32(y)
 
-			x, y = rotate(float64(line.Position2.X), float64(line.Position2.Y), float64(diff_theta))
+			x, y = utilities.Rotate(float64(line.Position2.X), float64(line.Position2.Y), float64(diff_theta))
 			line.Position2.X, line.Position2.Y = float32(x), float32(y)
 		}
 		m.current_rotation = theta_deg
@@ -92,7 +94,7 @@ type multiRobotLayout struct {
 }
 
 func init_multiRobotLayout() *multiRobotLayout {
-	return &multiRobotLayout{nil, fyne.NewSize(MAP_SIZE, MAP_SIZE)}
+	return &multiRobotLayout{nil, fyne.NewSize(config.MAP_SIZE, config.MAP_SIZE)}
 }
 
 // Layout is called to pack all child objects into a specified size.
@@ -127,11 +129,11 @@ func (m *multiRobotHandle) Rotate(index int, theta float64) {
 
 func (m *multiRobotHandle) Move(index int, position fyne.Position) {
 	current_size := m.multi_robot_layout.current_size
-	ratio := fyne.Min(current_size.Height, current_size.Width) / MAP_SIZE
+	ratio := fyne.Min(current_size.Height, current_size.Width) / config.MAP_SIZE
 	scale_position := fyne.NewPos(float32(position.X)*ratio, float32(position.Y)*ratio)
 
 	//The map is square and centered, but we must offset the position of the robots relative to the top left corner
-	dx, dy := float32(MAP_CENTER_X)*ratio, float32(MAP_CENTER_Y)*ratio
+	dx, dy := float32(config.MAP_CENTER_X)*ratio, float32(config.MAP_CENTER_Y)*ratio
 	if current_size.Height > current_size.Width {
 		dy += (current_size.Height - current_size.Width) / 2
 	} else {

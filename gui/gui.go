@@ -1,6 +1,9 @@
-package main
+package gui
 
 import (
+	"golang-server/config"
+	"golang-server/log"
+	"golang-server/types"
 	"image"
 	"image/color"
 	"strconv"
@@ -25,37 +28,27 @@ var (
 	BLACK    = color.Black
 )
 
-const (
-	AUTOMATIC_COMMAND = iota
-	MANUAL_COMMAND
-)
-
-type guiCommand struct {
-	command_type int //E.g. AUTOMATIC_COMMAND
-	id, x, y     int
-}
-
-func init_gui(
-	ch_g2b_command chan<- guiCommand,
-	ch_receive <-chan advMsg,
+func Init_gui(
+	ch_g2b_command chan<- types.Command,
+	ch_receive <-chan types.AdvMsg,
 	ch_g2b_robotInit chan<- [4]int,
 ) (fyne.Window, *image.RGBA, *canvas.Image, *multiRobotHandle, *container.AppTabs, *container.AppTabs) {
 
 	a := app.New()
 	w := a.NewWindow("Canvas")
-	w.Resize(fyne.NewSize(WINDOW_BREADTH, WINDOW_HEIGHT))
+	w.Resize(fyne.NewSize(config.WINDOW_BREADTH, config.WINDOW_HEIGHT))
 
 	//map initialization
-	map_shape := image.Rect(0, 0, MAP_SIZE, MAP_SIZE)
+	map_shape := image.Rect(0, 0, config.MAP_SIZE, config.MAP_SIZE)
 	map_image := image.NewRGBA(map_shape)
-	for x := 0; x < MAP_SIZE; x++ {
-		for y := 0; y < MAP_SIZE; y++ {
+	for x := 0; x < config.MAP_SIZE; x++ {
+		for y := 0; y < config.MAP_SIZE; y++ {
 			map_image.Set(x, y, GRAY)
 		}
 	}
 	map_canvas := canvas.NewImageFromImage(map_image)
 	map_canvas.FillMode = canvas.ImageFillContain
-	map_canvas.SetMinSize(fyne.NewSize(MAP_MINIMUM_DISPLAY_SIZE, MAP_MINIMUM_DISPLAY_SIZE))
+	map_canvas.SetMinSize(fyne.NewSize(config.MAP_MINIMUM_DISPLAY_SIZE, config.MAP_MINIMUM_DISPLAY_SIZE))
 
 	//robot initialization
 	multi_robot_handle := init_multiRobotHandle()
@@ -82,24 +75,24 @@ func init_gui(
 	return w, map_image, map_canvas, multi_robot_handle, manual_input, init_input
 }
 
-func thread_guiUpdate(
+func Thread_guiUpdate(
 	map_image *image.RGBA,
 	map_canvas *canvas.Image,
 	multi_robot_handle *multiRobotHandle,
 	manual_input *container.AppTabs,
 	init_input *container.AppTabs,
-	ch_g2b_command chan<- guiCommand,
+	ch_g2b_command chan<- types.Command,
 	ch_g2b_robotInit chan<- [4]int,
 	ch_b2g_robotPendingInit <-chan int,
-	ch_b2g_update <-chan updateGui,
+	ch_b2g_update <-chan types.UpdateGui,
 ) {
 	ch_robotGuiInit := make(chan [4]int, 3)
 	for {
 		select {
 		case partial_state := <-ch_b2g_update:
-			redraw_map(map_image, partial_state.new_open, partial_state.new_obstacle)
+			redraw_map(map_image, partial_state.New_open, partial_state.New_obstacle)
 			map_canvas.Refresh()
-			redraw_robots(multi_robot_handle, partial_state.multi_robot, partial_state.id2index)
+			redraw_robots(multi_robot_handle, partial_state.Multi_robot, partial_state.Id2index)
 		case id_pending := <-ch_b2g_robotPendingInit:
 			init_input.Append(container.NewTabItem("NRF-"+strconv.Itoa(id_pending), init_initInputTab(ch_g2b_robotInit, ch_robotGuiInit, id_pending)))
 		case init := <-ch_robotGuiInit:
@@ -114,7 +107,7 @@ func thread_guiUpdate(
 	}
 }
 
-func redraw_robots(multi_robot_handle *multiRobotHandle, backend_multiRobot []robotState, backend_id2index map[int]int) {
+func redraw_robots(multi_robot_handle *multiRobotHandle, backend_multiRobot []types.RobotState, backend_id2index map[int]int) {
 	backend_num_robots := len(backend_multiRobot)
 	if backend_num_robots > multi_robot_handle.NumRobots() {
 		for i := multi_robot_handle.NumRobots(); i < backend_num_robots; i++ {
@@ -128,8 +121,8 @@ func redraw_robots(multi_robot_handle *multiRobotHandle, backend_multiRobot []ro
 		}
 	}
 	for i := 0; i < backend_num_robots; i++ {
-		multi_robot_handle.Move(i, fyne.NewPos(float32(backend_multiRobot[i].x), -float32(backend_multiRobot[i].y)))
-		multi_robot_handle.Rotate(i, float64(backend_multiRobot[i].theta))
+		multi_robot_handle.Move(i, fyne.NewPos(float32(backend_multiRobot[i].X), -float32(backend_multiRobot[i].Y)))
+		multi_robot_handle.Rotate(i, float64(backend_multiRobot[i].Theta))
 	}
 }
 
@@ -161,10 +154,10 @@ func init_initInputTab(ch_g2b_robotInit, ch_robotGuiInit chan<- [4]int, id int) 
 			//send to backend [cm, cm, degrees]
 			ch_g2b_robotInit <- [4]int{id, x, y, theta}
 			ch_robotGuiInit <- [4]int{id, x, y, theta}
-			g_generalLogger.Println("Initializing robot with ID: ", id, " x: ", x, " y: ", y, " theta: ", theta, ".")
+			log.G_generalLogger.Println("Initializing robot with ID: ", id, " x: ", x, " y: ", y, " theta: ", theta, ".")
 		} else {
 			println("Invalid input")
-			g_generalLogger.Println("Invalid input. Only integers are allowed.")
+			log.G_generalLogger.Println("Invalid input. Only integers are allowed.")
 
 		}
 	})
@@ -180,7 +173,7 @@ func init_initInputTab(ch_g2b_robotInit, ch_robotGuiInit chan<- [4]int, id int) 
 	return init_container
 }
 
-func init_automaticInput(ch_g2b_command chan<- guiCommand) *fyne.Container {
+func init_automaticInput(ch_g2b_command chan<- types.Command) *fyne.Container {
 	input_x := widget.NewEntry()
 	input_x.SetPlaceHolder("x [cm]")
 	input_y := widget.NewEntry()
@@ -189,16 +182,16 @@ func init_automaticInput(ch_g2b_command chan<- guiCommand) *fyne.Container {
 		x, errX := strconv.Atoi(input_x.Text)
 		y, errY := strconv.Atoi(input_y.Text)
 		if errX == nil && errY == nil {
-			ch_g2b_command <- guiCommand{AUTOMATIC_COMMAND, -1, x, y}
+			ch_g2b_command <- types.Command{Command_type: types.AUTOMATIC_COMMAND, Id: -1, X: x, Y: y}
 		} else {
 			println("Invalid input")
-			g_generalLogger.Println("Invalid input. Only integers are allowed.")
+			log.G_generalLogger.Println("Invalid input. Only integers are allowed.")
 		}
 	}))
 	return automatic_container
 }
 
-func init_manualInputTab(ch_g2b_command chan<- guiCommand, id int) *fyne.Container {
+func init_manualInputTab(ch_g2b_command chan<- types.Command, id int) *fyne.Container {
 	input_x := widget.NewEntry()
 	input_x.SetPlaceHolder("x [cm]")
 	input_y := widget.NewEntry()
@@ -208,10 +201,10 @@ func init_manualInputTab(ch_g2b_command chan<- guiCommand, id int) *fyne.Contain
 		x, errX := strconv.Atoi(input_x.Text)
 		y, errY := strconv.Atoi(input_y.Text)
 		if errX == nil && errY == nil {
-			ch_g2b_command <- guiCommand{MANUAL_COMMAND, id, x, y}
+			ch_g2b_command <- types.Command{Command_type: types.MANUAL_COMMAND, Id: id, X: x, Y: y}
 		} else {
 			println("Invalid input")
-			g_generalLogger.Println("Invalid input. Only integers are allowed.")
+			log.G_generalLogger.Println("Invalid input. Only integers are allowed.")
 		}
 	}))
 	return manual_container
