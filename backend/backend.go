@@ -55,10 +55,10 @@ func Thread_backend(
 	prev_msg := types.AdvMsg{}
 	position_logger := log.Init_positionLogger()
 	pending_init := map[int]struct{}{} //simple and efficient way in golang to create a set to check values.
-	ch_updateGui_ticker := time.Tick(time.Second / config.GUI_FRAME_RATE)
+	ch_updateGui_ticker := time.NewTicker(time.Second / config.GUI_FRAME_RATE)
 	for {
 		select {
-		case <-ch_updateGui_ticker:
+		case <-ch_updateGui_ticker.C:
 			//update gui
 			ch_b2g_update <- types.UpdateGui{
 				Multi_robot:  state.multi_robot,
