@@ -21,7 +21,7 @@ func Mqtt_init() mqtt.Client {
 	opts.OnConnectionLost = connectLostHandler
 	client := mqtt.NewClient(opts)
 	if token := client.Connect(); token.Wait() && token.Error() != nil {
-		log.G_generalLogger.Println("Failed to connect to mqtt config.BROKER. Error: ", token.Error())
+		log.G_generalLogger.Println("Failed to connect to mqtt broker. Error: ", token.Error())
 		panic(token.Error())
 	}
 	return client
@@ -40,13 +40,13 @@ var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Me
 }
 
 var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
-	fmt.Println("Connected to mqtt config.BROKER")
-	log.G_generalLogger.Println("Connected to mqtt config.BROKER")
+	fmt.Println("Connected to mqtt broker")
+	log.G_generalLogger.Println("Connected to mqtt broker")
 }
 
 var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err error) {
-	fmt.Printf("Lost connection to mqtt config.BROKER. Error: %v", err)
-	log.G_generalLogger.Println("Lost connection to mqtt config.BROKER. Error: ", err)
+	fmt.Printf("Lost connection to mqtt broker. Error: %v", err)
+	log.G_generalLogger.Println("Lost connection to mqtt broker. Error: ", err)
 }
 
 func Thread_publish(
