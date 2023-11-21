@@ -22,15 +22,31 @@ func main() {
 	ch_b2g_update := make(chan types.UpdateGui, 3) //Buffered so it won't block Thread_backend(types.AdvMsg
 	ch_b2g_robotPendingInit := make(chan int, 3)   //Buffered so it won't block Thread_backend()
 
-	go backend.Thread_backend(ch_publish, ch_b2g_robotPendingInit, ch_receive, ch_g2b_robotInit, ch_g2b_command, ch_b2g_update)
+	go backend.Thread_backend(
+		ch_publish,
+		ch_b2g_robotPendingInit,
+		ch_receive,
+		ch_g2b_robotInit,
+		ch_g2b_command,
+		ch_b2g_update,
+	)
 
 	client := communication.Mqtt_init()
 	communication.Subscribe(client, ch_receive)
 	go communication.Thread_publish(client, ch_publish)
 
 	//window.ShowAndRun() must be run in the main thread. So the GUI must be initialized here.
-	window, map_image, map_canvas, multi_robot_handle, manual_input, init_input := gui.Init_gui(ch_g2b_command, ch_receive, ch_g2b_robotInit)
-	go gui.Thread_guiUpdate(map_image, map_canvas, multi_robot_handle, manual_input, init_input, ch_g2b_command, ch_g2b_robotInit, ch_b2g_robotPendingInit, ch_b2g_update)
+	window, map_image, map_canvas, multi_robot_handle, manual_input, init_input := gui.Init_gui(ch_g2b_command, ch_g2b_robotInit)
+	go gui.Thread_guiUpdate(
+		map_image,
+		map_canvas,
+		multi_robot_handle,
+		manual_input, init_input,
+		ch_g2b_command,
+		ch_g2b_robotInit,
+		ch_b2g_robotPendingInit,
+		ch_b2g_update,
+	)
 
 	window.ShowAndRun()
 
