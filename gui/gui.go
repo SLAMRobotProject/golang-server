@@ -121,6 +121,7 @@ func redraw_robots(multi_robot_handle *multiRobotHandle, backend_multiRobot []ty
 		}
 	}
 	for i := 0; i < backend_num_robots; i++ {
+		multi_robot_handle.set_pose_label(i, backend_multiRobot[i].X, backend_multiRobot[i].Y, backend_multiRobot[i].Theta)
 		multi_robot_handle.Move(i, fyne.NewPos(float32(backend_multiRobot[i].X), -float32(backend_multiRobot[i].Y)))
 		multi_robot_handle.Rotate(i, float64(backend_multiRobot[i].Theta))
 	}

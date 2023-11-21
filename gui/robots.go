@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"fmt"
 	"golang-server/config"
 	"golang-server/utilities"
 	"image/color"
@@ -17,12 +18,15 @@ import (
 
 type robotLayout struct {
 	lines            [3]*canvas.Line
+	pose_label       *canvas.Text
 	current_ratio    float32
 	current_rotation float64
 }
 
 func init_robotLayout(lines [3]*canvas.Line) *robotLayout {
-	return &robotLayout{lines, 1, 90}
+	pose_label := &canvas.Text{Text: "(0, 0, 0)", Alignment: fyne.TextAlignLeading, TextSize: 8, Color: RED}
+	pose_label.Move(fyne.NewPos(0, -20))
+	return &robotLayout{lines, pose_label, 1, 90}
 }
 
 // Layout is called to pack all child objects into a specified size.
@@ -143,6 +147,12 @@ func (m *multiRobotHandle) Move(index int, position fyne.Position) {
 	m.multi_robot_container.Objects[index].Move(scale_position.AddXY(dx, dy))
 }
 
+func (m *multiRobotHandle) set_pose_label(index int, x, y, theta int) {
+	robot := m.multi_robot_layout.robots[index]
+	robot.pose_label.Text = fmt.Sprintf("(%d, %d, %d)", x, y, theta)
+	robot.pose_label.Refresh()
+}
+
 func (m *multiRobotHandle) AddRobot(id int) {
 	robot := init_robotGui()
 
@@ -150,7 +160,7 @@ func (m *multiRobotHandle) AddRobot(id int) {
 
 	id_label := &canvas.Text{Text: strconv.Itoa(id), Alignment: fyne.TextAlignCenter, TextSize: 8, Color: GREEN}
 
-	robot_container := container.New(robot, robot.lines[0], robot.lines[1], robot.lines[2], id_label)
+	robot_container := container.New(robot, robot.lines[0], robot.lines[1], robot.lines[2], robot.pose_label, id_label)
 	m.multi_robot_container.Add(robot_container)
 }
 
