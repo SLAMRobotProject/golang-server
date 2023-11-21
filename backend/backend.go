@@ -44,11 +44,11 @@ func init_fullSlamState() *fullSlamState {
 
 func Thread_backend(
 	ch_publish chan<- [3]int,
-	ch_b2g_robotPendingInit chan<- int,
 	ch_receive <-chan types.AdvMsg,
-	ch_robotInit <-chan [4]int,
-	ch_g2b_command <-chan types.Command,
+	ch_b2g_robotPendingInit chan<- int,
 	ch_b2g_update chan<- types.UpdateGui,
+	ch_g2b_robotInit <-chan [4]int,
+	ch_g2b_command <-chan types.Command,
 ) {
 	var state *fullSlamState = init_fullSlamState()
 
@@ -114,7 +114,7 @@ func Thread_backend(
 				}
 			}
 			prev_msg = msg
-		case init := <-ch_robotInit:
+		case init := <-ch_g2b_robotInit:
 			id := init[0]
 			state.id2index[id] = len(state.multi_robot)
 			state.multi_robot = append(state.multi_robot, *init_robotState(init[1], init[2], init[3]))

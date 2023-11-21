@@ -30,7 +30,6 @@ var (
 
 func Init_gui(
 	ch_g2b_command chan<- types.Command,
-	ch_g2b_robotInit chan<- [4]int,
 ) (fyne.Window, *image.RGBA, *canvas.Image, *multiRobotHandle, *container.AppTabs, *container.AppTabs) {
 
 	a := app.New()
