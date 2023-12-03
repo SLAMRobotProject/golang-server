@@ -8,13 +8,13 @@ type AdvMsg struct {
 }
 
 const (
-	AUTOMATIC_COMMAND = iota
-	MANUAL_COMMAND
+	AutomaticCommand = iota
+	ManualCommand
 )
 
 type Command struct {
-	Command_type int //E.g. AUTOMATIC_COMMAND
-	Id, X, Y     int
+	CommandType int //E.g. AutomaticCommand
+	Id, X, Y    int
 }
 
 type RobotState struct {
