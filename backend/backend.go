@@ -16,23 +16,23 @@ const (
 	MAP_OBSTACLE                   //4
 )
 
-func init_robotState(x, y, theta int) *types.RobotState {
-	return &types.RobotState{X: x, Y: y, Theta: theta, X_init: x, Y_init: y, Theta_init: theta}
+func initRobotState(x, y, theta int) *types.RobotState {
+	return &types.RobotState{X: x, Y: y, Theta: theta, XInit: x, YInit: y, ThetaInit: theta}
 }
 
 type fullSlamState struct {
-	Map          [config.MAP_SIZE][config.MAP_SIZE]uint8
-	new_obstacle [][2]int //new since last gui update
-	new_open     [][2]int //new since last gui update
-	multi_robot  []types.RobotState
-	id2index     map[int]int
+	areaMap     [config.MAP_SIZE][config.MAP_SIZE]uint8
+	newObstacle [][2]int //new since last gui update
+	newOpen     [][2]int //new since last gui update
+	multiRobot  []types.RobotState
+	id2index    map[int]int
 }
 
-func init_fullSlamState() *fullSlamState {
+func initFullSlamState() *fullSlamState {
 	s := fullSlamState{}
 	for i := 0; i < config.MAP_SIZE; i++ {
 		for j := 0; j < config.MAP_SIZE; j++ {
-			s.Map[i][j] = MAP_UNKNOWN
+			s.areaMap[i][j] = MAP_UNKNOWN
 		}
 	}
 	s.id2index = make(map[int]int)
@@ -42,127 +42,127 @@ func init_fullSlamState() *fullSlamState {
 
 // The map is very large and sending it gives a warning. This only sends updates.
 
-func Thread_backend(
-	ch_publish chan<- [3]int,
-	ch_receive <-chan types.AdvMsg,
-	ch_b2g_robotPendingInit chan<- int,
-	ch_b2g_update chan<- types.UpdateGui,
-	ch_g2b_robotInit <-chan [4]int,
-	ch_g2b_command <-chan types.Command,
+func ThreadBackend(
+	chPublish chan<- [3]int,
+	chReceive <-chan types.AdvMsg,
+	chB2gRobotPendingInit chan<- int,
+	chB2gUpdate chan<- types.UpdateGui,
+	chG2bRobotInit <-chan [4]int,
+	chG2bCommand <-chan types.Command,
 ) {
-	var state *fullSlamState = init_fullSlamState()
+	var state *fullSlamState = initFullSlamState()
 
-	prev_msg := types.AdvMsg{}
-	position_logger := log.Init_positionLogger()
-	pending_init := map[int]struct{}{} //simple and efficient way in golang to create a set to check values.
-	ch_updateGui_ticker := time.NewTicker(time.Second / config.GUI_FRAME_RATE)
+	prevMsg := types.AdvMsg{}
+	positionLogger := log.InitPositionLogger()
+	pendingInit := map[int]struct{}{} //simple and efficient way in golang to create a set to check values.
+	guiUpdateTicker := time.NewTicker(time.Second / config.GUI_FRAME_RATE)
 	for {
 		select {
-		case <-ch_updateGui_ticker.C:
+		case <-guiUpdateTicker.C:
 			//update gui
-			ch_b2g_update <- types.UpdateGui{
-				Multi_robot:  state.multi_robot,
-				Id2index:     state.id2index,
-				New_open:     state.new_open,
-				New_obstacle: state.new_obstacle,
+			chB2gUpdate <- types.UpdateGui{
+				MultiRobot:  state.multiRobot,
+				Id2index:    state.id2index,
+				NewOpen:     state.newOpen,
+				NewObstacle: state.newObstacle,
 			}
-			//reset new_open and new_obstacle
-			state.new_open = [][2]int{}
-			state.new_obstacle = [][2]int{}
-		case command := <-ch_g2b_command:
+			//reset newOpen and newObstacle
+			state.newOpen = [][2]int{}
+			state.newObstacle = [][2]int{}
+		case command := <-chG2bCommand:
 			switch command.Command_type {
 			case types.AUTOMATIC_COMMAND:
-				id := state.find_closest_robot(command.X, command.Y)
+				id := state.findClosestRobot(command.X, command.Y)
 				if id == -1 {
-					//already logged in find_closest_robot()
+					//already logged in findClosestRobot()
 					return
 				}
 				//convert to mm because robot uses mm, and rotate back from init to get robot body coordinates
-				robot := state.get_robot(id)
-				x_robotBody, y_robotBody := utilities.Rotate(float64(command.X-robot.X_init)*10, float64(command.Y-robot.Y_init)*10, -float64(robot.Theta_init))
-				ch_publish <- [3]int{id, int(x_robotBody), int(y_robotBody)}
-				log.G_generalLogger.Println("Publishing automatic input to robot with ID: ", command.Id, " x: ", command.X, " y: ", command.Y, ".")
+				robot := state.getRobot(id)
+				x_robotBody, y_robotBody := utilities.Rotate(float64(command.X-robot.XInit)*10, float64(command.Y-robot.YInit)*10, -float64(robot.ThetaInit))
+				chPublish <- [3]int{id, int(x_robotBody), int(y_robotBody)}
+				log.GGeneralLogger.Println("Publishing automatic input to robot with ID: ", command.Id, " x: ", command.X, " y: ", command.Y, ".")
 			case types.MANUAL_COMMAND:
 				//convert to mm because robot uses mm, and rotate back from init to get robot body coordinates
-				robot := state.get_robot(command.Id)
-				x_robotBody, y_robotBody := utilities.Rotate(float64(command.X-robot.X_init)*10, float64(command.Y-robot.Y_init)*10, -float64(robot.Theta_init))
-				ch_publish <- [3]int{command.Id, int(x_robotBody), int(y_robotBody)}
-				log.G_generalLogger.Println("Publishing manual input to robot with ID: ", command.Id, " x: ", command.X, " y: ", command.Y, ".")
+				robot := state.getRobot(command.Id)
+				x_robotBody, y_robotBody := utilities.Rotate(float64(command.X-robot.XInit)*10, float64(command.Y-robot.YInit)*10, -float64(robot.ThetaInit))
+				chPublish <- [3]int{command.Id, int(x_robotBody), int(y_robotBody)}
+				log.GGeneralLogger.Println("Publishing manual input to robot with ID: ", command.Id, " x: ", command.X, " y: ", command.Y, ".")
 			}
-		case msg := <-ch_receive:
-			if _, exist := pending_init[msg.Id]; exist {
+		case msg := <-chReceive:
+			if _, exist := pendingInit[msg.Id]; exist {
 				//skip
 			} else if _, exist := state.id2index[msg.Id]; !exist {
-				pending_init[msg.Id] = struct{}{}
-				ch_b2g_robotPendingInit <- msg.Id //Buffered channel, so it will not block.
+				pendingInit[msg.Id] = struct{}{}
+				chB2gRobotPendingInit <- msg.Id //Buffered channel, so it will not block.
 			} else {
 				//robot update
-				new_x, new_y := utilities.Rotate(float64(msg.X/10), float64(msg.Y/10), float64(state.get_robot(msg.Id).Theta_init))
+				new_x, new_y := utilities.Rotate(float64(msg.X/10), float64(msg.Y/10), float64(state.getRobot(msg.Id).ThetaInit))
 				index := state.id2index[msg.Id]
-				state.multi_robot[index].X = int(new_x) + state.get_robot(msg.Id).X_init
-				state.multi_robot[index].Y = int(new_y) + state.get_robot(msg.Id).Y_init
-				state.multi_robot[index].Theta = msg.Theta + state.get_robot(msg.Id).Theta_init
+				state.multiRobot[index].X = int(new_x) + state.getRobot(msg.Id).XInit
+				state.multiRobot[index].Y = int(new_y) + state.getRobot(msg.Id).YInit
+				state.multiRobot[index].Theta = msg.Theta + state.getRobot(msg.Id).ThetaInit
 
 				//map update, dependent upon an updated robot
-				state.irSensorData_add(msg.Id, msg.Ir1x, msg.Ir1y)
-				state.irSensorData_add(msg.Id, msg.Ir2x, msg.Ir2y)
-				state.irSensorData_add(msg.Id, msg.Ir3x, msg.Ir3y)
-				state.irSensorData_add(msg.Id, msg.Ir4x, msg.Ir4y)
+				state.addIrSensorData(msg.Id, msg.Ir1x, msg.Ir1y)
+				state.addIrSensorData(msg.Id, msg.Ir2x, msg.Ir2y)
+				state.addIrSensorData(msg.Id, msg.Ir3x, msg.Ir3y)
+				state.addIrSensorData(msg.Id, msg.Ir4x, msg.Ir4y)
 				//log position
-				if msg.X != prev_msg.X || msg.Y != prev_msg.Y || msg.Theta != prev_msg.Theta {
-					position_logger.Printf("%d %d %d %d\n", msg.Id, state.get_robot(msg.Id).X, state.get_robot(msg.Id).Y, state.get_robot(msg.Id).Theta)
+				if msg.X != prevMsg.X || msg.Y != prevMsg.Y || msg.Theta != prevMsg.Theta {
+					positionLogger.Printf("%d %d %d %d\n", msg.Id, state.getRobot(msg.Id).X, state.getRobot(msg.Id).Y, state.getRobot(msg.Id).Theta)
 				}
 			}
-			prev_msg = msg
-		case init := <-ch_g2b_robotInit:
+			prevMsg = msg
+		case init := <-chG2bRobotInit:
 			id := init[0]
-			state.id2index[id] = len(state.multi_robot)
-			state.multi_robot = append(state.multi_robot, *init_robotState(init[1], init[2], init[3]))
-			delete(pending_init, id)
+			state.id2index[id] = len(state.multiRobot)
+			state.multiRobot = append(state.multiRobot, *initRobotState(init[1], init[2], init[3]))
+			delete(pendingInit, id)
 		}
 	}
 }
 
-func (s *fullSlamState) set_mapValue(x, y int, value uint8) {
-	s.Map[x][y] = value
+func (s *fullSlamState) setMapValue(x, y int, value uint8) {
+	s.areaMap[x][y] = value
 	switch value {
 	case MAP_OPEN:
-		s.new_open = append(s.new_open, [2]int{x, y})
+		s.newOpen = append(s.newOpen, [2]int{x, y})
 	case MAP_OBSTACLE:
-		s.new_obstacle = append(s.new_obstacle, [2]int{x, y})
+		s.newObstacle = append(s.newObstacle, [2]int{x, y})
 	}
 }
 
-func (s *fullSlamState) get_robot(id int) types.RobotState {
-	return s.multi_robot[s.id2index[id]]
+func (s *fullSlamState) getRobot(id int) types.RobotState {
+	return s.multiRobot[s.id2index[id]]
 }
 
-func (s *fullSlamState) irSensorData_add(id, irX, irY int) {
-	x_map, y_map := s.irSensorData_scaleRotateTranselate(id, irX, irY)
-	s.add_lineToMap(id, x_map, y_map)
+func (s *fullSlamState) addIrSensorData(id, irX, irY int) {
+	x_map, y_map := s.transformIrSensorData(id, irX, irY)
+	s.addLineToMap(id, x_map, y_map)
 }
 
-func (s *fullSlamState) irSensorData_scaleRotateTranselate(id, x_bodyFrame, y_bodyFrame int) (int, int) {
+func (s *fullSlamState) transformIrSensorData(id, x_bodyFrame, y_bodyFrame int) (int, int) {
 	// IR data is given in mm and it is relative to the body, so it must be scaled, rotated and transelated to the map.
 
 	//Must flip y_bodyFrame, because the axis is flipped in the robot code.
 	y_bodyFrame = -y_bodyFrame
 
 	//rotate
-	theta := s.multi_robot[s.id2index[id]].Theta
+	theta := s.multiRobot[s.id2index[id]].Theta
 	x_bodyFrame_rotated, y_bodyFrame_rotated := utilities.Rotate(float64(x_bodyFrame), float64(y_bodyFrame), float64(theta))
 
 	//scale and transelate
-	x_map := math.Round(x_bodyFrame_rotated/10) + float64(s.multi_robot[s.id2index[id]].X)
-	y_map := math.Round(y_bodyFrame_rotated/10) + float64(s.multi_robot[s.id2index[id]].Y)
+	x_map := math.Round(x_bodyFrame_rotated/10) + float64(s.multiRobot[s.id2index[id]].X)
+	y_map := math.Round(y_bodyFrame_rotated/10) + float64(s.multiRobot[s.id2index[id]].Y)
 
 	return int(x_map), int(y_map)
 }
 
-func (s *fullSlamState) add_lineToMap(id, x1, y1 int) {
+func (s *fullSlamState) addLineToMap(id, x1, y1 int) {
 	//x0, y0, x1, y1 is given in map coordinates. With origo as defined in the config.
-	x0 := s.get_robot(id).X
-	y0 := s.get_robot(id).Y
+	x0 := s.getRobot(id).X
+	y0 := s.getRobot(id).Y
 
 	line_length := math.Sqrt(math.Pow(float64(x0-x1), 2) + math.Pow(float64(y0-y1), 2))
 
@@ -180,26 +180,26 @@ func (s *fullSlamState) add_lineToMap(id, x1, y1 int) {
 	}
 
 	//get map index values
-	x0_idx, y0_idx := calculate_mapIndex(x0, y0)
-	x1_idx, y1_idx := calculate_mapIndex(x1, y1)
+	x0_idx, y0_idx := calculateMapIndex(x0, y0)
+	x1_idx, y1_idx := calculateMapIndex(x1, y1)
 	//get values in map range
 	x1_idx = min(max(x1_idx, 0), config.MAP_SIZE-1)
 	y1_idx = min(max(y1_idx, 0), config.MAP_SIZE-1)
 	x0_idx = min(max(x0_idx, 0), config.MAP_SIZE-1)
 	y0_idx = min(max(y0_idx, 0), config.MAP_SIZE-1)
 
-	idx_points := utilities.Bresenham_algorithm(x0_idx, y0_idx, x1_idx, y1_idx)
+	idx_points := utilities.BresenhamAlgorithm(x0_idx, y0_idx, x1_idx, y1_idx)
 	for i := 0; i < len(idx_points); i++ {
 		x := idx_points[i][0]
 		y := idx_points[i][1]
-		s.set_mapValue(x, y, MAP_OPEN)
+		s.setMapValue(x, y, MAP_OPEN)
 	}
 	if obstruction {
-		s.set_mapValue(x1_idx, y1_idx, MAP_OBSTACLE)
+		s.setMapValue(x1_idx, y1_idx, MAP_OBSTACLE)
 	}
 }
 
-func calculate_mapIndex(x, y int) (int, int) {
+func calculateMapIndex(x, y int) (int, int) {
 	//Input is given in map coordinates (i.e. robot positions) with normal axis and origo as defined in the config.
 	return config.MAP_CENTER_X + x, config.MAP_CENTER_Y - y
 }

@@ -32,7 +32,7 @@ func confirm_bresenham_output(known_points, calculated_points [][]int) bool {
 
 func baseTest__bresenham_algorithm(t *testing.T, known_points [][]int, x0, y0, x1, y1 int) bool {
 	success := true
-	calculated_points := utilities.Bresenham_algorithm(x0, y0, x1, y1)
+	calculated_points := utilities.BresenhamAlgorithm(x0, y0, x1, y1)
 	if len(calculated_points) != len(known_points) {
 		success = false
 	} else {
@@ -58,34 +58,34 @@ func Test__bresenham_algorithm(t *testing.T) {
 }
 
 func Test__add_lineToMap(t *testing.T) {
-	s := init_fullSlamState()
+	s := initFullSlamState()
 	id := 2
-	s.id2index[id] = len(s.multi_robot)
-	s.multi_robot = append(s.multi_robot, *init_robotState(0, 0, 90))
+	s.id2index[id] = len(s.multiRobot)
+	s.multiRobot = append(s.multiRobot, *initRobotState(0, 0, 90))
 
 	x1, y1 := 20, 20
-	x1_idx, y1_idx := calculate_mapIndex(x1, y1)
-	s.add_lineToMap(id, x1, y1)
-	if s.Map[x1_idx][y1_idx] != MAP_OBSTACLE {
-		t.Errorf("Function add_lineToMap did not add obstacle to map correctly.")
+	x1_idx, y1_idx := calculateMapIndex(x1, y1)
+	s.addLineToMap(id, x1, y1)
+	if s.areaMap[x1_idx][y1_idx] != MAP_OBSTACLE {
+		t.Errorf("Function addLineToMap did not add obstacle to map correctly.")
 	}
 
 	x1, y1 = -20, -20
-	x1_mod_idx, y1_mod_idx := calculate_mapIndex(x1+1, y1+1) //modified to test the point before the obstacle
-	s.add_lineToMap(id, x1, y1)
-	if s.Map[x1_mod_idx][y1_mod_idx] != MAP_OPEN {
-		t.Errorf("Function add_lineToMap did not add line to map correctly.")
+	x1_mod_idx, y1_mod_idx := calculateMapIndex(x1+1, y1+1) //modified to test the point before the obstacle
+	s.addLineToMap(id, x1, y1)
+	if s.areaMap[x1_mod_idx][y1_mod_idx] != MAP_OPEN {
+		t.Errorf("Function addLineToMap did not add line to map correctly.")
 	}
 
 	x1, y1 = 40, 40
-	x1_idx, y1_idx = calculate_mapIndex(x1, y1)
-	if s.Map[x1_idx][y1_idx] == MAP_UNKNOWN {
-		s.add_lineToMap(id, x1, y1)
-		x1_mod_idx, y1_mod_idx = calculate_mapIndex(21, 21) //modified to respect a max distance of 30
-		if math.Sqrt(float64(x1*x1+y1*y1)) > config.IR_SENSOR_MAX_DISTANCE && s.Map[x1_idx][y1_idx] != MAP_UNKNOWN {
-			t.Errorf("Function add_lineToMap did not respect the max distance.")
-		} else if s.Map[x1_mod_idx][y1_mod_idx] != MAP_OPEN {
-			t.Errorf("Function add_lineToMap did not add line to map correctly.")
+	x1_idx, y1_idx = calculateMapIndex(x1, y1)
+	if s.areaMap[x1_idx][y1_idx] == MAP_UNKNOWN {
+		s.addLineToMap(id, x1, y1)
+		x1_mod_idx, y1_mod_idx = calculateMapIndex(21, 21) //modified to respect a max distance of 30
+		if math.Sqrt(float64(x1*x1+y1*y1)) > config.IR_SENSOR_MAX_DISTANCE && s.areaMap[x1_idx][y1_idx] != MAP_UNKNOWN {
+			t.Errorf("Function addLineToMap did not respect the max distance.")
+		} else if s.areaMap[x1_mod_idx][y1_mod_idx] != MAP_OPEN {
+			t.Errorf("Function addLineToMap did not add line to map correctly.")
 		}
 	} else {
 		t.Errorf("Could not test max distance, because the point is already known.")
@@ -93,31 +93,31 @@ func Test__add_lineToMap(t *testing.T) {
 }
 
 func Test__irSensorData_add(t *testing.T) {
-	s := init_fullSlamState()
+	s := initFullSlamState()
 	id := 2
-	s.id2index[id] = len(s.multi_robot)
-	s.multi_robot = append(s.multi_robot, *init_robotState(0, 0, 90))
+	s.id2index[id] = len(s.multiRobot)
+	s.multiRobot = append(s.multiRobot, *initRobotState(0, 0, 90))
 
 	irX, irY := 500, 500 //written in milimeters (because of the robot code), while the map is in centimeters
-	s.irSensorData_add(id, irX, irY)
-	if s.Map[config.MAP_CENTER_X+21][config.MAP_CENTER_Y-21] != MAP_OPEN {
-		t.Errorf("Function irSensorData_add did not add line to map correctly.#1")
+	s.addIrSensorData(id, irX, irY)
+	if s.areaMap[config.MAP_CENTER_X+21][config.MAP_CENTER_Y-21] != MAP_OPEN {
+		t.Errorf("Function addIrSensorData did not add line to map correctly.#1")
 	}
 
 	irX, irY = -200, -200
-	s.irSensorData_add(id, irX, irY)
-	if s.Map[config.MAP_CENTER_X-19][config.MAP_CENTER_Y+19] != MAP_OPEN {
-		t.Errorf("Function irSensorData_add did not add line to map correctly.#2")
+	s.addIrSensorData(id, irX, irY)
+	if s.areaMap[config.MAP_CENTER_X-19][config.MAP_CENTER_Y+19] != MAP_OPEN {
+		t.Errorf("Function addIrSensorData did not add line to map correctly.#2")
 	}
-	if s.Map[config.MAP_CENTER_X-20][config.MAP_CENTER_Y+20] != MAP_OBSTACLE {
-		print(s.Map[config.MAP_CENTER_X-20][config.MAP_CENTER_Y+20])
-		t.Errorf("Function irSensorData_add did not add obstruction.")
+	if s.areaMap[config.MAP_CENTER_X-20][config.MAP_CENTER_Y+20] != MAP_OBSTACLE {
+		print(s.areaMap[config.MAP_CENTER_X-20][config.MAP_CENTER_Y+20])
+		t.Errorf("Function addIrSensorData did not add obstruction.")
 	}
 
 	irX, irY = 1000, 1000
-	s.multi_robot[s.id2index[id]].X = -150
-	s.irSensorData_add(id, irX, irY)
-	if s.Map[config.MAP_CENTER_X+21][config.MAP_CENTER_Y+150-21] == MAP_OPEN {
-		t.Errorf("Function irSensorData_add did not respect the max distance. #3")
+	s.multiRobot[s.id2index[id]].X = -150
+	s.addIrSensorData(id, irX, irY)
+	if s.areaMap[config.MAP_CENTER_X+21][config.MAP_CENTER_Y+150-21] == MAP_OPEN {
+		t.Errorf("Function addIrSensorData did not respect the max distance. #3")
 	}
 }
