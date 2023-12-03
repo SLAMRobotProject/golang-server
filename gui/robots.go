@@ -23,15 +23,15 @@ type robotLayout struct {
 	currentRotation float64
 }
 
-func init_robotLayout(lines [3]*canvas.Line) *robotLayout {
-	poseLabel := &canvas.Text{Text: "(0, 0, 0)", Alignment: fyne.TextAlignLeading, TextSize: 8, Color: RED}
+func initRobotLayout(lines [3]*canvas.Line) *robotLayout {
+	poseLabel := &canvas.Text{Text: "(0, 0, 0)", Alignment: fyne.TextAlignLeading, TextSize: 8, Color: red}
 	poseLabel.Move(fyne.NewPos(0, -20))
 	return &robotLayout{lines, poseLabel, 1, 90}
 }
 
 // Layout is called to pack all child objects into a specified size.
 func (m *robotLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
-	var ratio float32 = fyne.Min(size.Height, size.Width) / config.MAP_SIZE
+	var ratio float32 = fyne.Min(size.Height, size.Width) / config.MapSize
 	adjustment := ratio / m.currentRatio
 	for _, line := range m.lines {
 		line.Position1.X *= adjustment
@@ -80,11 +80,11 @@ func initLine(
 }
 
 func initRobotGui() *robotLayout {
-	mainBody := initLine(BLUE, fyne.NewPos(0, -10), fyne.NewPos(0, 10), 13)
-	wheels := initLine(BLUE, fyne.NewPos(-10, 0), fyne.NewPos(10, 0), 6.5)
-	directionIndicator := initLine(RED, fyne.NewPos(0, 0), fyne.NewPos(0, -9), 3)
+	mainBody := initLine(blue, fyne.NewPos(0, -10), fyne.NewPos(0, 10), 13)
+	wheels := initLine(blue, fyne.NewPos(-10, 0), fyne.NewPos(10, 0), 6.5)
+	directionIndicator := initLine(red, fyne.NewPos(0, 0), fyne.NewPos(0, -9), 3)
 	robotLines := [3]*canvas.Line{mainBody, directionIndicator, wheels}
-	robotHandle := init_robotLayout(robotLines)
+	robotHandle := initRobotLayout(robotLines)
 	return robotHandle
 }
 
@@ -98,15 +98,15 @@ type multiRobotLayout struct {
 }
 
 func initMultiRobotLayout() *multiRobotLayout {
-	return &multiRobotLayout{nil, fyne.NewSize(config.MAP_SIZE, config.MAP_SIZE)}
+	return &multiRobotLayout{nil, fyne.NewSize(config.MapSize, config.MapSize)}
 }
 
 // Layout is called to pack all child objects into a specified size.
-func (m *multiRobotLayout) Layout(objects []fyne.CanvasObject, new_size fyne.Size) {
+func (m *multiRobotLayout) Layout(objects []fyne.CanvasObject, newSize fyne.Size) {
 	for _, child := range objects {
-		child.Resize(new_size)
+		child.Resize(newSize)
 	}
-	m.currentSize = new_size
+	m.currentSize = newSize
 }
 
 // MinSize finds the smallest size that satisfies all the child objects.
@@ -133,11 +133,11 @@ func (m *multiRobotHandle) Rotate(index int, theta float64) {
 
 func (m *multiRobotHandle) Move(index int, position fyne.Position) {
 	currentSize := m.layout.currentSize
-	ratio := fyne.Min(currentSize.Height, currentSize.Width) / config.MAP_SIZE
+	ratio := fyne.Min(currentSize.Height, currentSize.Width) / config.MapSize
 	scalePosition := fyne.NewPos(float32(position.X)*ratio, float32(position.Y)*ratio)
 
 	//The map is square and centered, but we must offset the position of the robots relative to the top left corner
-	dx, dy := float32(config.MAP_CENTER_X)*ratio, float32(config.MAP_CENTER_Y)*ratio
+	dx, dy := float32(config.MapCenterX)*ratio, float32(config.MapCenterY)*ratio
 	if currentSize.Height > currentSize.Width {
 		dy += (currentSize.Height - currentSize.Width) / 2
 	} else {
@@ -158,7 +158,7 @@ func (m *multiRobotHandle) AddRobot(id int) {
 
 	m.layout.robots = append(m.layout.robots, robot)
 
-	IdLabel := &canvas.Text{Text: strconv.Itoa(id), Alignment: fyne.TextAlignCenter, TextSize: 8, Color: GREEN}
+	IdLabel := &canvas.Text{Text: strconv.Itoa(id), Alignment: fyne.TextAlignCenter, TextSize: 8, Color: green}
 
 	robotContainer := container.New(robot, robot.lines[0], robot.lines[1], robot.lines[2], robot.poseLabel, IdLabel)
 	m.container.Add(robotContainer)

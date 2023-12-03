@@ -15,7 +15,7 @@ import (
 
 func InitMqtt() mqtt.Client {
 	opts := mqtt.NewClientOptions()
-	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", config.BROKER, config.PORT))
+	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", config.Broker, config.Port))
 	opts.SetDefaultPublishHandler(messagePubHandler)
 	opts.OnConnect = connectHandler
 	opts.OnConnectionLost = connectLostHandler
@@ -53,11 +53,11 @@ func ThreadMqttPublish(
 	client mqtt.Client,
 	chPublish <-chan [3]int,
 ) {
-	prefix_byte := []byte{2}
+	prefixByte := []byte{2} //because the robot code expects a byte here
 	for msg := range chPublish {
 
 		buf := new(bytes.Buffer)
-		binary.Write(buf, binary.LittleEndian, prefix_byte)
+		binary.Write(buf, binary.LittleEndian, prefixByte)
 		binary.Write(buf, binary.LittleEndian, int16(msg[1]))
 		binary.Write(buf, binary.LittleEndian, int16(msg[2]))
 
@@ -91,7 +91,7 @@ func advMessageHandler(
 			binary.Read(reader, binary.LittleEndian, &m.ir4y)
 			binary.Read(reader, binary.LittleEndian, &m.valid) //valid is not used in the robot code
 
-			new_msg := types.AdvMsg{
+			newMsg := types.AdvMsg{
 				Id:    int(m.id),
 				X:     int(m.x),
 				Y:     int(m.y),
@@ -106,14 +106,14 @@ func advMessageHandler(
 				Ir4y:  int(m.ir4y),
 			}
 
-			chIncomingMsg <- new_msg
+			chIncomingMsg <- newMsg
 
 			// One robots sends about 30 messages per second. Uncomment the following lines to see the messages.
 
-			//fmt.Printf("Id: %d, x: %d, y: %d, theta: %d, ir1x: %d, ir1y: %d, ir2x: %d, ir2y: %d, ir3x: %d, ir3y: %d, ir4x: %d, ir4y: %d\n", new_msg.id, new_msg.x, new_msg.y, new_msg.theta, new_msg.ir1x, new_msg.ir1y, new_msg.ir2x, new_msg.ir2y, new_msg.ir3x, new_msg.ir3y, new_msg.ir4x, new_msg.ir4y)
-			//log.GGeneralLogger.Printf("Id: %d, x: %d, y: %d, theta: %d, ir1x: %d, ir1y: %d, ir2x: %d, ir2y: %d, ir3x: %d, ir3y: %d, ir4x: %d, ir4y: %d\n", new_msg.id, new_msg.x, new_msg.y, new_msg.theta, new_msg.ir1x, new_msg.ir1y, new_msg.ir2x, new_msg.ir2y, new_msg.ir3x, new_msg.ir3y, new_msg.ir4x, new_msg.ir4y)
-			//fmt.Printf("Id: %d, x: %d, y: %d, theta: %d\n", new_msg.id, new_msg.x, new_msg.y, new_msg.theta)
-			//log.GGeneralLogger.Printf("Id: %d, x: %d, y: %d, theta: %d\n", new_msg.id, new_msg.x, new_msg.y, new_msg.theta)
+			//fmt.Printf("Id: %d, x: %d, y: %d, theta: %d, ir1x: %d, ir1y: %d, ir2x: %d, ir2y: %d, ir3x: %d, ir3y: %d, ir4x: %d, ir4y: %d\n", newMsg.id, newMsg.x, newMsg.y, newMsg.theta, newMsg.ir1x, newMsg.ir1y, newMsg.ir2x, newMsg.ir2y, newMsg.ir3x, newMsg.ir3y, newMsg.ir4x, newMsg.ir4y)
+			//log.GGeneralLogger.Printf("Id: %d, x: %d, y: %d, theta: %d, ir1x: %d, ir1y: %d, ir2x: %d, ir2y: %d, ir3x: %d, ir3y: %d, ir4x: %d, ir4y: %d\n", newMsg.id, newMsg.x, newMsg.y, newMsg.theta, newMsg.ir1x, newMsg.ir1y, newMsg.ir2x, newMsg.ir2y, newMsg.ir3x, newMsg.ir3y, newMsg.ir4x, newMsg.ir4y)
+			//fmt.Printf("Id: %d, x: %d, y: %d, theta: %d\n", newMsg.id, newMsg.x, newMsg.y, newMsg.theta)
+			//log.GGeneralLogger.Printf("Id: %d, x: %d, y: %d, theta: %d\n", newMsg.id, newMsg.x, newMsg.y, newMsg.theta)
 		}
 	}
 }

@@ -11,9 +11,9 @@ import (
 
 // using binary flags to represent the map to allow bitwise operations
 const (
-	MAP_OPEN     uint8 = 1 << iota //1
-	MAP_UNKNOWN                    //2
-	MAP_OBSTACLE                   //4
+	mapOpen     uint8 = 1 << iota //1
+	mapUnknown                    //2
+	mapObstacle                   //4
 )
 
 func initRobotState(x, y, theta int) *types.RobotState {
@@ -21,7 +21,7 @@ func initRobotState(x, y, theta int) *types.RobotState {
 }
 
 type fullSlamState struct {
-	areaMap     [config.MAP_SIZE][config.MAP_SIZE]uint8
+	areaMap     [config.MapSize][config.MapSize]uint8
 	newObstacle [][2]int //new since last gui update
 	newOpen     [][2]int //new since last gui update
 	multiRobot  []types.RobotState
@@ -30,9 +30,9 @@ type fullSlamState struct {
 
 func initFullSlamState() *fullSlamState {
 	s := fullSlamState{}
-	for i := 0; i < config.MAP_SIZE; i++ {
-		for j := 0; j < config.MAP_SIZE; j++ {
-			s.areaMap[i][j] = MAP_UNKNOWN
+	for i := 0; i < config.MapSize; i++ {
+		for j := 0; j < config.MapSize; j++ {
+			s.areaMap[i][j] = mapUnknown
 		}
 	}
 	s.id2index = make(map[int]int)
@@ -55,7 +55,7 @@ func ThreadBackend(
 	prevMsg := types.AdvMsg{}
 	positionLogger := log.InitPositionLogger()
 	pendingInit := map[int]struct{}{} //simple and efficient way in golang to create a set to check values.
-	guiUpdateTicker := time.NewTicker(time.Second / config.GUI_FRAME_RATE)
+	guiUpdateTicker := time.NewTicker(time.Second / config.GuiFrameRate)
 	for {
 		select {
 		case <-guiUpdateTicker.C:
@@ -70,8 +70,8 @@ func ThreadBackend(
 			state.newOpen = [][2]int{}
 			state.newObstacle = [][2]int{}
 		case command := <-chG2bCommand:
-			switch command.Command_type {
-			case types.AUTOMATIC_COMMAND:
+			switch command.CommandType {
+			case types.AutomaticCommand:
 				id := state.findClosestRobot(command.X, command.Y)
 				if id == -1 {
 					//already logged in findClosestRobot()
@@ -79,14 +79,14 @@ func ThreadBackend(
 				}
 				//convert to mm because robot uses mm, and rotate back from init to get robot body coordinates
 				robot := state.getRobot(id)
-				x_robotBody, y_robotBody := utilities.Rotate(float64(command.X-robot.XInit)*10, float64(command.Y-robot.YInit)*10, -float64(robot.ThetaInit))
-				chPublish <- [3]int{id, int(x_robotBody), int(y_robotBody)}
+				xRobotBody, yRobotBody := utilities.Rotate(float64(command.X-robot.XInit)*10, float64(command.Y-robot.YInit)*10, -float64(robot.ThetaInit))
+				chPublish <- [3]int{id, int(xRobotBody), int(yRobotBody)}
 				log.GGeneralLogger.Println("Publishing automatic input to robot with ID: ", command.Id, " x: ", command.X, " y: ", command.Y, ".")
-			case types.MANUAL_COMMAND:
+			case types.ManualCommand:
 				//convert to mm because robot uses mm, and rotate back from init to get robot body coordinates
 				robot := state.getRobot(command.Id)
-				x_robotBody, y_robotBody := utilities.Rotate(float64(command.X-robot.XInit)*10, float64(command.Y-robot.YInit)*10, -float64(robot.ThetaInit))
-				chPublish <- [3]int{command.Id, int(x_robotBody), int(y_robotBody)}
+				xRobotBody, yRobotBody := utilities.Rotate(float64(command.X-robot.XInit)*10, float64(command.Y-robot.YInit)*10, -float64(robot.ThetaInit))
+				chPublish <- [3]int{command.Id, int(xRobotBody), int(yRobotBody)}
 				log.GGeneralLogger.Println("Publishing manual input to robot with ID: ", command.Id, " x: ", command.X, " y: ", command.Y, ".")
 			}
 		case msg := <-chReceive:
@@ -97,10 +97,10 @@ func ThreadBackend(
 				chB2gRobotPendingInit <- msg.Id //Buffered channel, so it will not block.
 			} else {
 				//robot update
-				new_x, new_y := utilities.Rotate(float64(msg.X/10), float64(msg.Y/10), float64(state.getRobot(msg.Id).ThetaInit))
+				newX, newY := utilities.Rotate(float64(msg.X/10), float64(msg.Y/10), float64(state.getRobot(msg.Id).ThetaInit))
 				index := state.id2index[msg.Id]
-				state.multiRobot[index].X = int(new_x) + state.getRobot(msg.Id).XInit
-				state.multiRobot[index].Y = int(new_y) + state.getRobot(msg.Id).YInit
+				state.multiRobot[index].X = int(newX) + state.getRobot(msg.Id).XInit
+				state.multiRobot[index].Y = int(newY) + state.getRobot(msg.Id).YInit
 				state.multiRobot[index].Theta = msg.Theta + state.getRobot(msg.Id).ThetaInit
 
 				//map update, dependent upon an updated robot
@@ -126,9 +126,9 @@ func ThreadBackend(
 func (s *fullSlamState) setMapValue(x, y int, value uint8) {
 	s.areaMap[x][y] = value
 	switch value {
-	case MAP_OPEN:
+	case mapOpen:
 		s.newOpen = append(s.newOpen, [2]int{x, y})
-	case MAP_OBSTACLE:
+	case mapObstacle:
 		s.newObstacle = append(s.newObstacle, [2]int{x, y})
 	}
 }
@@ -138,25 +138,25 @@ func (s *fullSlamState) getRobot(id int) types.RobotState {
 }
 
 func (s *fullSlamState) addIrSensorData(id, irX, irY int) {
-	x_map, y_map := s.transformIrSensorData(id, irX, irY)
-	s.addLineToMap(id, x_map, y_map)
+	xMap, yMap := s.transformIrSensorData(id, irX, irY)
+	s.addLineToMap(id, xMap, yMap)
 }
 
-func (s *fullSlamState) transformIrSensorData(id, x_bodyFrame, y_bodyFrame int) (int, int) {
+func (s *fullSlamState) transformIrSensorData(id, xBodyFrame, yBodyFrame int) (int, int) {
 	// IR data is given in mm and it is relative to the body, so it must be scaled, rotated and transelated to the map.
 
-	//Must flip y_bodyFrame, because the axis is flipped in the robot code.
-	y_bodyFrame = -y_bodyFrame
+	//Must flip yBodyFrame, because the axis is flipped in the robot code.
+	yBodyFrame = -yBodyFrame
 
 	//rotate
 	theta := s.multiRobot[s.id2index[id]].Theta
-	x_bodyFrame_rotated, y_bodyFrame_rotated := utilities.Rotate(float64(x_bodyFrame), float64(y_bodyFrame), float64(theta))
+	xBodyFrameRotated, yBodyFrameRotated := utilities.Rotate(float64(xBodyFrame), float64(yBodyFrame), float64(theta))
 
 	//scale and transelate
-	x_map := math.Round(x_bodyFrame_rotated/10) + float64(s.multiRobot[s.id2index[id]].X)
-	y_map := math.Round(y_bodyFrame_rotated/10) + float64(s.multiRobot[s.id2index[id]].Y)
+	xMap := math.Round(xBodyFrameRotated/10) + float64(s.multiRobot[s.id2index[id]].X)
+	yMap := math.Round(yBodyFrameRotated/10) + float64(s.multiRobot[s.id2index[id]].Y)
 
-	return int(x_map), int(y_map)
+	return int(xMap), int(yMap)
 }
 
 func (s *fullSlamState) addLineToMap(id, x1, y1 int) {
@@ -164,42 +164,42 @@ func (s *fullSlamState) addLineToMap(id, x1, y1 int) {
 	x0 := s.getRobot(id).X
 	y0 := s.getRobot(id).Y
 
-	line_length := math.Sqrt(math.Pow(float64(x0-x1), 2) + math.Pow(float64(y0-y1), 2))
+	lineLength := math.Sqrt(math.Pow(float64(x0-x1), 2) + math.Pow(float64(y0-y1), 2))
 
 	var obstruction bool
-	if line_length < config.IR_SENSOR_MAX_DISTANCE {
+	if lineLength < config.IrSensorMaxDistance {
 		obstruction = true
 	} else {
 		obstruction = false
 
-		//shorten the line to config.IR_SENSOR_MAX_DISTANCE, needed for bresenham algorithm
-		scale := config.IR_SENSOR_MAX_DISTANCE / line_length
+		//shorten the line to config.IrSensorMaxDistance, needed for bresenham algorithm
+		scale := config.IrSensorMaxDistance / lineLength
 		x1 = x0 + int(scale*float64(x1-x0))
 		y1 = y0 + int(scale*float64(y1-y0))
 
 	}
 
 	//get map index values
-	x0_idx, y0_idx := calculateMapIndex(x0, y0)
-	x1_idx, y1_idx := calculateMapIndex(x1, y1)
+	x0Index, y0Index := calculateMapIndex(x0, y0)
+	x1Index, y1Index := calculateMapIndex(x1, y1)
 	//get values in map range
-	x1_idx = min(max(x1_idx, 0), config.MAP_SIZE-1)
-	y1_idx = min(max(y1_idx, 0), config.MAP_SIZE-1)
-	x0_idx = min(max(x0_idx, 0), config.MAP_SIZE-1)
-	y0_idx = min(max(y0_idx, 0), config.MAP_SIZE-1)
+	x1Index = min(max(x1Index, 0), config.MapSize-1)
+	y1Index = min(max(y1Index, 0), config.MapSize-1)
+	x0Index = min(max(x0Index, 0), config.MapSize-1)
+	y0Index = min(max(y0Index, 0), config.MapSize-1)
 
-	idx_points := utilities.BresenhamAlgorithm(x0_idx, y0_idx, x1_idx, y1_idx)
-	for i := 0; i < len(idx_points); i++ {
-		x := idx_points[i][0]
-		y := idx_points[i][1]
-		s.setMapValue(x, y, MAP_OPEN)
+	indexPoints := utilities.BresenhamAlgorithm(x0Index, y0Index, x1Index, y1Index)
+	for i := 0; i < len(indexPoints); i++ {
+		x := indexPoints[i][0]
+		y := indexPoints[i][1]
+		s.setMapValue(x, y, mapOpen)
 	}
 	if obstruction {
-		s.setMapValue(x1_idx, y1_idx, MAP_OBSTACLE)
+		s.setMapValue(x1Index, y1Index, mapObstacle)
 	}
 }
 
 func calculateMapIndex(x, y int) (int, int) {
 	//Input is given in map coordinates (i.e. robot positions) with normal axis and origo as defined in the config.
-	return config.MAP_CENTER_X + x, config.MAP_CENTER_Y - y
+	return config.MapCenterX + x, config.MapCenterY - y
 }
