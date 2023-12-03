@@ -12,15 +12,13 @@ func Rotate(x_in, y_in, theta float64) (float64, float64) {
 }
 
 //Bresenham's line algorithm. Used to find all pixels to form a line between two points.
-func Bresenham_algorithm(x0, y0, x1, y1 int) [][]int {
+func BresenhamAlgorithm(x0, y0, x1, y1 int) [][]int {
 	dx := math.Abs(float64(x1 - x0))
-	//sx = x0 < x1 ? 1 : -1
 	sx := 1
 	if x0 > x1 {
 		sx = -1
 	}
 	dy := -math.Abs(float64(y1 - y0))
-	//sy = y0 < y1 ? 1 : -1
 	sy := 1
 	if y0 > y1 {
 		sy = -1

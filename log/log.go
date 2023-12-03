@@ -5,9 +5,10 @@ import (
 	"os"
 )
 
-var G_generalLogger *log.Logger = init_generalLogger()
+// global logging variable
+var GGeneralLogger *log.Logger = initGeneralLogger()
 
-func init_generalLogger() *log.Logger {
+func initGeneralLogger() *log.Logger {
 	// Flags: Create if needed, write only, remove contents. 0666 is read/write permission for everyone.
 	file, err := os.OpenFile("general.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
 	if err != nil {
@@ -18,7 +19,7 @@ func init_generalLogger() *log.Logger {
 	return logger
 }
 
-func Init_positionLogger() *log.Logger {
+func InitPositionLogger() *log.Logger {
 	// Flags: Create if needed, write only, remove contents. 0666 is read/write permission for everyone.
 	file, err := os.OpenFile("positions.csv", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
 	if err != nil {

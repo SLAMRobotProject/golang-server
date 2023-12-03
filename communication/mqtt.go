@@ -13,7 +13,7 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
-func Mqtt_init() mqtt.Client {
+func InitMqtt() mqtt.Client {
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", config.BROKER, config.PORT))
 	opts.SetDefaultPublishHandler(messagePubHandler)
@@ -21,7 +21,7 @@ func Mqtt_init() mqtt.Client {
 	opts.OnConnectionLost = connectLostHandler
 	client := mqtt.NewClient(opts)
 	if token := client.Connect(); token.Wait() && token.Error() != nil {
-		log.G_generalLogger.Println("Failed to connect to mqtt broker. Error: ", token.Error())
+		log.GGeneralLogger.Println("Failed to connect to mqtt broker. Error: ", token.Error())
 		panic(token.Error())
 	}
 	return client
@@ -36,25 +36,25 @@ type advMsgUnpacking struct {
 
 var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
 	fmt.Printf("Received message: %s from topic: %s\n", msg.Payload(), msg.Topic())
-	log.G_generalLogger.Println("Received message from unsubscribed topic: ", msg.Topic(), " Message: ", msg.Payload())
+	log.GGeneralLogger.Println("Received message from unsubscribed topic: ", msg.Topic(), " Message: ", msg.Payload())
 }
 
 var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
 	fmt.Println("Connected to mqtt broker")
-	log.G_generalLogger.Println("Connected to mqtt broker")
+	log.GGeneralLogger.Println("Connected to mqtt broker")
 }
 
 var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err error) {
 	fmt.Printf("Lost connection to mqtt broker. Error: %v", err)
-	log.G_generalLogger.Println("Lost connection to mqtt broker. Error: ", err)
+	log.GGeneralLogger.Println("Lost connection to mqtt broker. Error: ", err)
 }
 
-func Thread_publish(
+func ThreadMqttPublish(
 	client mqtt.Client,
-	ch_publish <-chan [3]int,
+	chPublish <-chan [3]int,
 ) {
 	prefix_byte := []byte{2}
-	for msg := range ch_publish {
+	for msg := range chPublish {
 
 		buf := new(bytes.Buffer)
 		binary.Write(buf, binary.LittleEndian, prefix_byte)
@@ -65,12 +65,12 @@ func Thread_publish(
 		token.Wait()
 		time.Sleep(time.Second)
 
-		//logging is done in the different functions that writes to ch_publish
+		//logging is done in the different functions that writes to chPublish
 	}
 }
 
-func adv_messageHandler(
-	ch_incoming_msg chan<- types.AdvMsg,
+func advMessageHandler(
+	chIncomingMsg chan<- types.AdvMsg,
 ) mqtt.MessageHandler {
 	return func(client mqtt.Client, msg mqtt.Message) {
 		payload := msg.Payload()
@@ -106,25 +106,25 @@ func adv_messageHandler(
 				Ir4y:  int(m.ir4y),
 			}
 
-			ch_incoming_msg <- new_msg
+			chIncomingMsg <- new_msg
 
 			// One robots sends about 30 messages per second. Uncomment the following lines to see the messages.
 
 			//fmt.Printf("Id: %d, x: %d, y: %d, theta: %d, ir1x: %d, ir1y: %d, ir2x: %d, ir2y: %d, ir3x: %d, ir3y: %d, ir4x: %d, ir4y: %d\n", new_msg.id, new_msg.x, new_msg.y, new_msg.theta, new_msg.ir1x, new_msg.ir1y, new_msg.ir2x, new_msg.ir2y, new_msg.ir3x, new_msg.ir3y, new_msg.ir4x, new_msg.ir4y)
-			//log.G_generalLogger.Printf("Id: %d, x: %d, y: %d, theta: %d, ir1x: %d, ir1y: %d, ir2x: %d, ir2y: %d, ir3x: %d, ir3y: %d, ir4x: %d, ir4y: %d\n", new_msg.id, new_msg.x, new_msg.y, new_msg.theta, new_msg.ir1x, new_msg.ir1y, new_msg.ir2x, new_msg.ir2y, new_msg.ir3x, new_msg.ir3y, new_msg.ir4x, new_msg.ir4y)
+			//log.GGeneralLogger.Printf("Id: %d, x: %d, y: %d, theta: %d, ir1x: %d, ir1y: %d, ir2x: %d, ir2y: %d, ir3x: %d, ir3y: %d, ir4x: %d, ir4y: %d\n", new_msg.id, new_msg.x, new_msg.y, new_msg.theta, new_msg.ir1x, new_msg.ir1y, new_msg.ir2x, new_msg.ir2y, new_msg.ir3x, new_msg.ir3y, new_msg.ir4x, new_msg.ir4y)
 			//fmt.Printf("Id: %d, x: %d, y: %d, theta: %d\n", new_msg.id, new_msg.x, new_msg.y, new_msg.theta)
-			//log.G_generalLogger.Printf("Id: %d, x: %d, y: %d, theta: %d\n", new_msg.id, new_msg.x, new_msg.y, new_msg.theta)
+			//log.GGeneralLogger.Printf("Id: %d, x: %d, y: %d, theta: %d\n", new_msg.id, new_msg.x, new_msg.y, new_msg.theta)
 		}
 	}
 }
 
 func Subscribe(
 	client mqtt.Client,
-	ch_incoming_msg chan<- types.AdvMsg,
+	chIncomingMsg chan<- types.AdvMsg,
 ) {
 	topic := "v2/robot/NRF_5/adv"
-	token := client.Subscribe(topic, 1, adv_messageHandler(ch_incoming_msg))
+	token := client.Subscribe(topic, 1, advMessageHandler(chIncomingMsg))
 	token.Wait()
 	fmt.Printf("Subscribed to topic: %s", topic)
-	log.G_generalLogger.Println("Subscribed to topic: ", topic)
+	log.GGeneralLogger.Println("Subscribed to topic: ", topic)
 }

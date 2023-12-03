@@ -18,13 +18,13 @@ type Command struct {
 }
 
 type RobotState struct {
-	X, Y, Theta                int //cm, degrees
-	X_init, Y_init, Theta_init int
+	X, Y, Theta             int //cm, degrees
+	XInit, YInit, ThetaInit int
 }
 
 type UpdateGui struct {
-	Multi_robot  []RobotState
-	Id2index     map[int]int
-	New_open     [][2]int
-	New_obstacle [][2]int
+	MultiRobot  []RobotState
+	Id2index    map[int]int
+	NewOpen     [][2]int
+	NewObstacle [][2]int
 }
