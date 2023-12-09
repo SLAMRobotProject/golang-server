@@ -1,2 +1,2 @@
 # golang-server
-This is a golang server based on communication via MQTT. It is made to be compatible with the robots from the SLAM robot specialization project at NTNU. 
+This repository contains the Golang server. Made to controll the robots from the SLAM robot specialization project at NTNU. There are separate README files inside both the *src* and the *testing* directories.
