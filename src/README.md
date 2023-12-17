@@ -11,5 +11,5 @@ Running from source:
 1. Follow the Fyne (GUI package) [installation guide](https://developer.fyne.io/started/)
 1. Open a terminal, navigate to this directory (the *src* directory) and run with `go run .` or build with `go build .`
    
-The executable was created with `broker="slam"` meaning that it will only connect to the raspberry pi broker.
+The executable was created with `broker="slam"` meaning that it will only connect to the physical Raspberry Pi broker. Connecting to the Raspberry Pi broker can be done by connecting it to power and Ethernet and then connect your computer to the Raspberry Pi WiFi: `BorderRouter-AP` with password `12345678`.
 
