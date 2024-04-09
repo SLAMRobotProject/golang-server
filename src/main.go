@@ -13,6 +13,7 @@ func main() {
 	//only backend can publish and receive
 	chPublish := make(chan [3]int, 3)
 	chReceive := make(chan types.AdvMsg, 3)
+	chReceiveLine := make(chan types.LineMsg, 3)
 
 	//g2b = gui to backend
 	chG2bRobotInit := make(chan [4]int, 3)
@@ -25,6 +26,7 @@ func main() {
 	go backend.ThreadBackend(
 		chPublish,
 		chReceive,
+		chReceiveLine,
 		chB2gRobotPendingInit,
 		chB2gUpdate,
 		chG2bRobotInit,
@@ -32,7 +34,8 @@ func main() {
 	)
 
 	client := communication.InitMqtt()
-	communication.Subscribe(client, chReceive)
+	communication.Subscribe(client, chReceive, chReceiveLine)
+	//communication.Subscribe(client, chReceiveLine)
 	go communication.ThreadMqttPublish(client, chPublish)
 
 	//window.ShowAndRun() must be run in the main thread. So the GUI must be initialized here.

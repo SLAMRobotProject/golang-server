@@ -45,6 +45,7 @@ func initFullSlamState() *fullSlamState {
 func ThreadBackend(
 	chPublish chan<- [3]int,
 	chReceive <-chan types.AdvMsg,
+	chReceiveLine <- chan types.LineMsg,
 	chB2gRobotPendingInit chan<- int,
 	chB2gUpdate chan<- types.UpdateGui,
 	chG2bRobotInit <-chan [4]int,
@@ -114,6 +115,32 @@ func ThreadBackend(
 				}
 			}
 			prevMsg = msg
+		case msg := <-chReceiveLine:
+			if _, exist := pendingInit[msg.Id]; exist {
+				//skip
+			} else if _, exist := state.id2index[msg.Id]; !exist {
+				pendingInit[msg.Id] = struct{}{}
+				chB2gRobotPendingInit <- msg.Id //Buffered channel, so it will not block.
+			} else {
+				/*
+				//robot update
+				newX, newY := utilities.Rotate(float64(msg.X/10), float64(msg.Y/10), float64(state.getRobot(msg.Id).ThetaInit))
+				index := state.id2index[msg.Id]
+				state.multiRobot[index].X = int(newX) + state.getRobot(msg.Id).XInit
+				state.multiRobot[index].Y = int(newY) + state.getRobot(msg.Id).YInit
+				state.multiRobot[index].Theta = msg.Theta + state.getRobot(msg.Id).ThetaInit
+				*/
+
+				//map update, dependent upon an updated robot
+				state.addLineData(msg.Id, msg.StartX, msg.StartY, msg.EndX, msg.EndY)
+
+				//log position
+				/*
+				if msg.X != prevMsg.X || msg.Y != prevMsg.Y || msg.Theta != prevMsg.Theta {
+					positionLogger.Printf("%d %d %d %d\n", msg.Id, state.getRobot(msg.Id).X, state.getRobot(msg.Id).Y, state.getRobot(msg.Id).Theta)
+				}*/
+			}
+			//prevMsg = msg
 		case init := <-chG2bRobotInit:
 			id := init[0]
 			state.id2index[id] = len(state.multiRobot)
@@ -140,6 +167,15 @@ func (s *fullSlamState) getRobot(id int) types.RobotState {
 func (s *fullSlamState) addIrSensorData(id, irX, irY int) {
 	xMap, yMap := s.transformIrSensorData(id, irX, irY)
 	s.addLineToMap(id, xMap, yMap)
+}
+
+func (s *fullSlamState) addLineData(id, startX, startY, endX, endY int) {
+	//xMap, yMap := s.transformIrSensorData(id, irX, irY)
+	mapStartX := startX
+	mapStartY := startY
+	mapEndX := endX
+	mapEndY := endY
+	s.addLineToMap2(id, mapStartX, mapStartY, mapEndX, mapEndY)
 }
 
 func (s *fullSlamState) transformIrSensorData(id, xBodyFrame, yBodyFrame int) (int, int) {
@@ -197,6 +233,49 @@ func (s *fullSlamState) addLineToMap(id, x1, y1 int) {
 	if obstruction {
 		s.setMapValue(x1Index, y1Index, mapObstacle)
 	}
+}
+
+
+func (s *fullSlamState) addLineToMap2(id, x0, y0, x1, y1 int) {
+	//x0, y0, x1, y1 is given in map coordinates. With origo as defined in the config.
+
+	/*
+	lineLength := math.Sqrt(math.Pow(float64(x0-x1), 2) + math.Pow(float64(y0-y1), 2))
+
+	var obstruction bool
+	if lineLength < config.IrSensorMaxDistance {
+		obstruction = true
+	} else {
+		obstruction = false
+
+		//shorten the line to config.IrSensorMaxDistance, needed for bresenham algorithm
+		scale := config.IrSensorMaxDistance / lineLength
+		x1 = x0 + int(scale*float64(x1-x0))
+		y1 = y0 + int(scale*float64(y1-y0))
+
+	}*/
+
+	//get map index values
+	x0Index, y0Index := calculateMapIndex(x0, y0)
+	x1Index, y1Index := calculateMapIndex(x1, y1)
+
+	//get values in map range
+	x1Index = min(max(x1Index, 0), config.MapSize-1)
+	y1Index = min(max(y1Index, 0), config.MapSize-1)
+	x0Index = min(max(x0Index, 0), config.MapSize-1)
+	y0Index = min(max(y0Index, 0), config.MapSize-1)
+
+	indexPoints := utilities.BresenhamAlgorithm(x0Index, y0Index, x1Index, y1Index)
+	for i := 0; i < len(indexPoints); i++ {
+		x := indexPoints[i][0]
+		y := indexPoints[i][1]
+		s.setMapValue(x, y, mapOpen)
+	}
+
+	/*
+	if obstruction {
+		s.setMapValue(x1Index, y1Index, mapObstacle)
+	}*/
 }
 
 func calculateMapIndex(x, y int) (int, int) {

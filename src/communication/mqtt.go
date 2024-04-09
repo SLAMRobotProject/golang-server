@@ -34,6 +34,11 @@ type advMsgUnpacking struct {
 	valid                                                       bool
 }
 
+type lineMsgUnpacking struct {
+	id                                                          int8
+	x, y, theta, startX, startY, endX, endY, lineTheta	 	 	int16
+}
+
 var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
 	fmt.Printf("Received message: %s from topic: %s\n", msg.Payload(), msg.Topic())
 	log.GGeneralLogger.Println("Received message from unsubscribed topic: ", msg.Topic(), " Message: ", msg.Payload())
@@ -118,13 +123,63 @@ func advMessageHandler(
 	}
 }
 
+func lineMessageHandler(
+	chIncomingMsg chan<- types.LineMsg,
+) mqtt.MessageHandler {
+	return func(client mqtt.Client, msg mqtt.Message) {
+		payload := msg.Payload()
+		reader := bytes.NewReader(payload)
+		if len(payload) == 17 {
+			m := lineMsgUnpacking{}
+			binary.Read(reader, binary.LittleEndian, &m.id)
+			binary.Read(reader, binary.LittleEndian, &m.x)
+			binary.Read(reader, binary.LittleEndian, &m.y)
+			binary.Read(reader, binary.LittleEndian, &m.theta)
+			binary.Read(reader, binary.LittleEndian, &m.startX)
+			binary.Read(reader, binary.LittleEndian, &m.startY)
+			binary.Read(reader, binary.LittleEndian, &m.endX)
+			binary.Read(reader, binary.LittleEndian, &m.endY)
+			binary.Read(reader, binary.LittleEndian, &m.lineTheta)
+
+			newMsg := types.LineMsg{
+				Id:    int(m.id),
+				X:     int(m.x),
+				Y:     int(m.y),
+				Theta: int(m.theta),
+				StartX:  int(m.startX),
+				StartY:  int(m.startY),
+				EndX:  int(m.endX),
+				EndY:  int(m.endY),
+				LineTheta:  int(m.lineTheta),
+			}
+
+			chIncomingMsg <- newMsg
+
+			fmt.Printf("Id: %d, x: %d, y: %d, theta: %d, startX: %d, startY: %d, endX: %d, endY: %d, lineTheta: %d\n", m.id, m.x, m.y, m.theta, m.startX, m.startY, m.endX, m.endY, m.lineTheta)
+			log.GGeneralLogger.Printf("Id: %d, x: %d, y: %d, theta: %d, startX: %d, startY: %d, endX: %d, endY: %d, lineTheta: %d\n", m.id, m.x, m.y, m.theta, m.startX, m.startY, m.endX, m.endY, m.lineTheta)
+			//fmt.Printf("Id: %d, x: %d, y: %d, theta: %d\n", newMsg.id, newMsg.x, newMsg.y, newMsg.theta)
+			//log.GGeneralLogger.Printf("Id: %d, x: %d, y: %d, theta: %d\n", newMsg.id, newMsg.x, newMsg.y, newMsg.theta)
+		}
+	}
+}
+
+
 func Subscribe(
 	client mqtt.Client,
 	chIncomingMsg chan<- types.AdvMsg,
+	//chIncomingMsg chan<- types.LineMsg,
+	chIncomingMsgLine chan<- types.LineMsg,
 ) {
 	topic := "v2/robot/NRF_5/adv"
+	//topic := "v2/robot/NRF_5/line"
+	topicLine := "v2/robot/NRF_5/line"
 	token := client.Subscribe(topic, 1, advMessageHandler(chIncomingMsg))
+	//token := client.Subscribe(topic, 1, lineMessageHandler(chIncomingMsg))
+	tokenLine := client.Subscribe(topicLine, 1, lineMessageHandler(chIncomingMsgLine))
 	token.Wait()
-	fmt.Printf("Subscribed to topic: %s", topic)
+	tokenLine.Wait()
+	fmt.Printf("Subscribed to topic: %s\n", topic)
+	fmt.Printf("Subscribed to topic: %s\n", topicLine)
 	log.GGeneralLogger.Println("Subscribed to topic: ", topic)
+	log.GGeneralLogger.Println("Subscribed to topic: ", topicLine)
 }

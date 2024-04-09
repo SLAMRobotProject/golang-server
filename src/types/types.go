@@ -7,6 +7,10 @@ type AdvMsg struct {
 	Id, X, Y, Theta, Ir1x, Ir1y, Ir2x, Ir2y, Ir3x, Ir3y, Ir4x, Ir4y int
 }
 
+type LineMsg struct {
+	Id, X, Y, Theta, StartX, StartY, EndX, EndY, LineTheta int
+}
+
 const (
 	AutomaticCommand = iota
 	ManualCommand
