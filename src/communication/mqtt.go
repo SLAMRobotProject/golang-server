@@ -171,10 +171,8 @@ func Subscribe(
 	chIncomingMsgLine chan<- types.LineMsg,
 ) {
 	topic := "v2/robot/NRF_5/adv"
-	//topic := "v2/robot/NRF_5/line"
 	topicLine := "v2/robot/NRF_5/line"
 	token := client.Subscribe(topic, 1, advMessageHandler(chIncomingMsg))
-	//token := client.Subscribe(topic, 1, lineMessageHandler(chIncomingMsg))
 	tokenLine := client.Subscribe(topicLine, 1, lineMessageHandler(chIncomingMsgLine))
 	token.Wait()
 	tokenLine.Wait()

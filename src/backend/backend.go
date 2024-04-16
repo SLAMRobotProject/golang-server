@@ -122,14 +122,14 @@ func ThreadBackend(
 				pendingInit[msg.Id] = struct{}{}
 				chB2gRobotPendingInit <- msg.Id //Buffered channel, so it will not block.
 			} else {
-				/*
+				
 				//robot update
-				newX, newY := utilities.Rotate(float64(msg.X/10), float64(msg.Y/10), float64(state.getRobot(msg.Id).ThetaInit))
+				//newX, newY := utilities.Rotate(float64(msg.X/10), float64(msg.Y/10), float64(state.getRobot(msg.Id).ThetaInit))
 				index := state.id2index[msg.Id]
-				state.multiRobot[index].X = int(newX) + state.getRobot(msg.Id).XInit
-				state.multiRobot[index].Y = int(newY) + state.getRobot(msg.Id).YInit
+				state.multiRobot[index].X = msg.X + state.getRobot(msg.Id).XInit //int(newX) + state.getRobot(msg.Id).XInit
+				state.multiRobot[index].Y = msg.Y+ state.getRobot(msg.Id).XInit //int(newY) + state.getRobot(msg.Id).YInit
 				state.multiRobot[index].Theta = msg.Theta + state.getRobot(msg.Id).ThetaInit
-				*/
+				
 
 				//map update, dependent upon an updated robot
 				state.addLineData(msg.Id, msg.StartX, msg.StartY, msg.EndX, msg.EndY)
@@ -270,6 +270,7 @@ func (s *fullSlamState) addLineToMap2(id, x0, y0, x1, y1 int) {
 		x := indexPoints[i][0]
 		y := indexPoints[i][1]
 		s.setMapValue(x, y, mapOpen)
+		s.setMapValue(x, y, mapObstacle)
 	}
 
 	/*
