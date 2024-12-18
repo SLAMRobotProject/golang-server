@@ -1,12 +1,14 @@
 package backend
 
 import (
+	//"fmt"
 	"golang-server/config"
 	"golang-server/log"
 	"golang-server/types"
 	"golang-server/utilities"
 	"math"
 	"time"
+	//"golang.org/x/text/cases"
 )
 
 // using binary flags to represent the map to allow bitwise operations
@@ -44,11 +46,14 @@ func initFullSlamState() *fullSlamState {
 
 func ThreadBackend(
 	chPublish chan<- [3]int,
+	chPublishInit chan<-[4]int,
 	chReceive <-chan types.AdvMsg,
 	chB2gRobotPendingInit chan<- int,
 	chB2gUpdate chan<- types.UpdateGui,
 	chG2bRobotInit <-chan [4]int,
 	chG2bCommand <-chan types.Command,
+	chReceiveMapFromRobot <-chan types.RectangleMsg,
+	chB2gMapRectangle chan<- types.RectangleMsg,
 ) {
 	var state *fullSlamState = initFullSlamState()
 
@@ -114,11 +119,16 @@ func ThreadBackend(
 				}
 			}
 			prevMsg = msg
+		case msg := <-chReceiveMapFromRobot:
+			//fmt.Print("\n", msg.X, msg.Y, msg.Height, msg.Width, msg.Obstacle, msg.Reachable)
+			chB2gMapRectangle <- msg //Send the rectangle to mapping
+
 		case init := <-chG2bRobotInit:
 			id := init[0]
 			state.id2index[id] = len(state.multiRobot)
 			state.multiRobot = append(state.multiRobot, *initRobotState(init[1], init[2], init[3]))
 			delete(pendingInit, id)
+			chPublishInit<-init //Send init to communication
 		}
 	}
 }

@@ -34,6 +34,14 @@ type advMsgUnpacking struct {
 	valid                                                       bool
 }
 
+type recMsgUnpacking struct {
+	id 					uint8
+	totalMap			bool
+	x, y, width, height int16
+	obstacle            uint8
+	reachable           bool
+}
+
 var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
 	fmt.Printf("Received message: %s from topic: %s\n", msg.Payload(), msg.Topic())
 	log.GGeneralLogger.Println("Received message from unsubscribed topic: ", msg.Topic(), " Message: ", msg.Payload())
@@ -52,20 +60,38 @@ var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err
 func ThreadMqttPublish(
 	client mqtt.Client,
 	chPublish <-chan [3]int,
+	chPublishInit <-chan [4]int,
 ) {
-	prefixByte := []byte{2} //because the robot code expects a byte here
-	for msg := range chPublish {
+	//prefixByte := []byte{2} //because the robot code expects a byte here
+	//init:=false
 
-		buf := new(bytes.Buffer)
-		binary.Write(buf, binary.LittleEndian, prefixByte)
-		binary.Write(buf, binary.LittleEndian, int16(msg[1]))
-		binary.Write(buf, binary.LittleEndian, int16(msg[2]))
+	for {
+		select {
+		case msgCommand := <-chPublish:
+			buf := new(bytes.Buffer)
+			binary.Write(buf, binary.LittleEndian, uint8(1))
+			binary.Write(buf, binary.LittleEndian, int16(msgCommand[1]))
+			binary.Write(buf, binary.LittleEndian, int16(msgCommand[2]))
+			token := client.Publish("v2/server/NRF_"+strconv.Itoa(msgCommand[0])+"/serverpub", 0, false, buf.Bytes())
+			token.Wait()
+			time.Sleep(time.Second)
+		case msgInit := <-chPublishInit:
+			buf := new(bytes.Buffer)
+			binary.Write(buf, binary.LittleEndian, uint8(2))
+			binary.Write(buf, binary.LittleEndian, int16(msgInit[1]))                                          //x
+			binary.Write(buf, binary.LittleEndian, int16(msgInit[2]))                                         //y
+			binary.Write(buf, binary.LittleEndian, int16(msgInit[3]))                                         //theta
+			token := client.Publish("v2/server/NRF_"+strconv.Itoa(msgInit[0])+"/serverpub", 0, false, buf.Bytes()) //Publish to coresponding robot
+			token.Wait()
+			time.Sleep(time.Second)
+			if token.Wait() && token.Error() != nil {
+				fmt.Println("Error publishing")
+				fmt.Printf("Buffer:%v\n", buf.Bytes())
 
-		token := client.Publish("v2/server/NRF_"+strconv.Itoa(msg[0])+"/cmd", 0, false, buf.Bytes())
-		token.Wait()
-		time.Sleep(time.Second)
-
-		//logging is done in the different functions that writes to chPublish
+			}
+			//Resend in default case?
+		}
+		
 	}
 }
 
@@ -110,21 +136,61 @@ func advMessageHandler(
 
 			// One robots sends about 30 messages per second. Uncomment the following lines to see the messages.
 
-			//fmt.Printf("Id: %d, x: %d, y: %d, theta: %d, ir1x: %d, ir1y: %d, ir2x: %d, ir2y: %d, ir3x: %d, ir3y: %d, ir4x: %d, ir4y: %d\n", newMsg.id, newMsg.x, newMsg.y, newMsg.theta, newMsg.ir1x, newMsg.ir1y, newMsg.ir2x, newMsg.ir2y, newMsg.ir3x, newMsg.ir3y, newMsg.ir4x, newMsg.ir4y)
-			//log.GGeneralLogger.Printf("Id: %d, x: %d, y: %d, theta: %d, ir1x: %d, ir1y: %d, ir2x: %d, ir2y: %d, ir3x: %d, ir3y: %d, ir4x: %d, ir4y: %d\n", newMsg.id, newMsg.x, newMsg.y, newMsg.theta, newMsg.ir1x, newMsg.ir1y, newMsg.ir2x, newMsg.ir2y, newMsg.ir3x, newMsg.ir3y, newMsg.ir4x, newMsg.ir4y)
-			//fmt.Printf("Id: %d, x: %d, y: %d, theta: %d\n", newMsg.id, newMsg.x, newMsg.y, newMsg.theta)
-			//log.GGeneralLogger.Printf("Id: %d, x: %d, y: %d, theta: %d\n", newMsg.id, newMsg.x, newMsg.y, newMsg.theta)
+			//fmt.Printf("Id: %d, x: %d, y: %d, theta: %d, ir1x: %d, ir1y: %d, ir2x: %d, ir2y: %d, ir3x: %d, ir3y: %d, ir4x: %d, ir4y: %d\n", newMsg.Id, newMsg.X, newMsg.Y, newMsg.Theta, newMsg.Ir1x, newMsg.Ir1y, newMsg.Ir2x, newMsg.Ir2y, newMsg.Ir3x, newMsg.Ir3y, newMsg.Ir4x, newMsg.Ir4y)
+			log.GGeneralLogger.Printf("Id: %d, x: %d, y: %d, theta: %d, ir1x: %d, ir1y: %d, ir2x: %d, ir2y: %d, ir3x: %d, ir3y: %d, ir4x: %d, ir4y: %d\n", newMsg.Id, newMsg.X, newMsg.Y, newMsg.Theta, newMsg.Ir1x, newMsg.Ir1y, newMsg.Ir2x, newMsg.Ir2y, newMsg.Ir3x, newMsg.Ir3y, newMsg.Ir4x, newMsg.Ir4y)
+			//fmt.Printf("Id: %d, x: %d, y: %d, theta: %d\n", newMsg.Id, newMsg.X, newMsg.Y, newMsg.Theta)
+			//log.GGeneralLogger.Printf("Id: %d, x: %d, y: %d, theta: %d\n", newMsg.Id, newMsg.X, newMsg.Y, newMsg.Theta)
 		}
 	}
+}
+
+func recMessageHandler(
+	chIncomingMsg chan<- types.RectangleMsg,
+) mqtt.MessageHandler {
+	return func(client mqtt.Client, msg mqtt.Message) {
+		payload := msg.Payload()
+		reader := bytes.NewReader(payload)
+		if len(payload) == 12 { //Amount of bytes in message
+			m := recMsgUnpacking{}
+			binary.Read(reader, binary.LittleEndian, &m.id)
+			binary.Read(reader, binary.LittleEndian, &m.totalMap)
+			binary.Read(reader, binary.LittleEndian, &m.x)
+			binary.Read(reader, binary.LittleEndian, &m.y)
+			binary.Read(reader, binary.LittleEndian, &m.width)
+			binary.Read(reader, binary.LittleEndian, &m.height)
+			binary.Read(reader, binary.LittleEndian, &m.obstacle)
+			binary.Read(reader, binary.LittleEndian, &m.reachable)
+
+			newMsg := types.RectangleMsg{
+				Id: 	   int(m.id),
+				TotalMap:  bool(m.totalMap),
+				X:         int(m.x),
+				Y:         int(m.y),
+				Width:     int(m.width),
+				Height:    int(m.height),
+				Obstacle:  int(m.obstacle),
+				Reachable: bool(m.reachable),
+			}
+			chIncomingMsg <- newMsg
+
+		}
+	}
+
 }
 
 func Subscribe(
 	client mqtt.Client,
 	chIncomingMsg chan<- types.AdvMsg,
+	chIncomingMsgMap chan<- types.RectangleMsg,
 ) {
 	topic := "v2/robot/NRF_5/adv"
 	token := client.Subscribe(topic, 1, advMessageHandler(chIncomingMsg))
 	token.Wait()
 	fmt.Printf("Subscribed to topic: %s", topic)
 	log.GGeneralLogger.Println("Subscribed to topic: ", topic)
+	topic2 := "v2/robot/NRF_5/rectangle"
+	token2 := client.Subscribe(topic2, 1, recMessageHandler(chIncomingMsgMap))
+	token2.Wait()
+	fmt.Printf("\nSubscribed to topic: %s", topic2)
+	log.GGeneralLogger.Println("Subscribed to topic: ", topic2)
 }
