@@ -1,11 +1,13 @@
 package backend
 
 import (
+	"fmt"
 	"golang-server/config"
 	"golang-server/log"
 	"golang-server/types"
 	"golang-server/utilities"
 	"math"
+	"strings"
 	"time"
 )
 
@@ -103,6 +105,10 @@ func ThreadBackend(
 				state.multiRobot[index].Y = int(newY) + state.getRobot(msg.Id).YInit
 				state.multiRobot[index].Theta = msg.Theta + state.getRobot(msg.Id).ThetaInit
 
+				// Her kommer oppdateringer fra roboten inn. Få den til å sende inn
+				// Kovariansmatrisen fra Kalmanfilteret også slik at det kan
+				// brukes i NEES!
+
 				//map update, dependent upon an updated robot
 				state.addIrSensorData(msg.Id, msg.Ir1x, msg.Ir1y)
 				state.addIrSensorData(msg.Id, msg.Ir2x, msg.Ir2y)
@@ -110,7 +116,14 @@ func ThreadBackend(
 				state.addIrSensorData(msg.Id, msg.Ir4x, msg.Ir4y)
 				//log position
 				if msg.X != prevMsg.X || msg.Y != prevMsg.Y || msg.Theta != prevMsg.Theta {
-					positionLogger.Printf("%d %d %d %d\n", msg.Id, state.getRobot(msg.Id).X, state.getRobot(msg.Id).Y, state.getRobot(msg.Id).Theta)
+					covarianceMatrixString := formatCovarianceMatrix([5 * 5]float32{
+						msg.CovarianceMatrixNumber1, msg.CovarianceMatrixNumber2, msg.CovarianceMatrixNumber3, msg.CovarianceMatrixNumber4, msg.CovarianceMatrixNumber5,
+						msg.CovarianceMatrixNumber6, msg.CovarianceMatrixNumber7, msg.CovarianceMatrixNumber8, msg.CovarianceMatrixNumber9, msg.CovarianceMatrixNumber10,
+						msg.CovarianceMatrixNumber11, msg.CovarianceMatrixNumber12, msg.CovarianceMatrixNumber13, msg.CovarianceMatrixNumber14, msg.CovarianceMatrixNumber15,
+						msg.CovarianceMatrixNumber16, msg.CovarianceMatrixNumber17, msg.CovarianceMatrixNumber18, msg.CovarianceMatrixNumber19, msg.CovarianceMatrixNumber20,
+						msg.CovarianceMatrixNumber21, msg.CovarianceMatrixNumber22, msg.CovarianceMatrixNumber23, msg.CovarianceMatrixNumber24, msg.CovarianceMatrixNumber25,
+					})
+					positionLogger.Printf("%d %d %d %d %s\n", msg.Id, state.getRobot(msg.Id).X, state.getRobot(msg.Id).Y, state.getRobot(msg.Id).Theta, covarianceMatrixString)
 				}
 			}
 			prevMsg = msg
@@ -121,6 +134,17 @@ func ThreadBackend(
 			delete(pendingInit, id)
 		}
 	}
+}
+
+func formatCovarianceMatrix(matrix [5 * 5]float32) string {
+	var sb strings.Builder
+	for i, value := range matrix {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(fmt.Sprintf("%f", value))
+	}
+	return sb.String()
 }
 
 func (s *fullSlamState) setMapValue(x, y int, value uint8) {
