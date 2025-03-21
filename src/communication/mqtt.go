@@ -29,9 +29,14 @@ func InitMqtt() mqtt.Client {
 
 // Must use the correct amount of bytes for each data type.
 type advMsgUnpacking struct {
-	id                                                          int8
-	x, y, theta, ir1x, ir1y, ir2x, ir2y, ir3x, ir3y, ir4x, ir4y int16
-	valid                                                       bool
+	id                                                                                                                               int8
+	x, y, theta, ir1x, ir1y, ir2x, ir2y, ir3x, ir3y, ir4x, ir4y                                                                      int16
+	covarianceMatrixNumber1, covarianceMatrixNumber2, covarianceMatrixNumber3, covarianceMatrixNumber4, covarianceMatrixNumber5      float32
+	covarianceMatrixNumber6, covarianceMatrixNumber7, covarianceMatrixNumber8, covarianceMatrixNumber9, covarianceMatrixNumber10     float32
+	covarianceMatrixNumber11, covarianceMatrixNumber12, covarianceMatrixNumber13, covarianceMatrixNumber14, covarianceMatrixNumber15 float32
+	covarianceMatrixNumber16, covarianceMatrixNumber17, covarianceMatrixNumber18, covarianceMatrixNumber19, covarianceMatrixNumber20 float32
+	covarianceMatrixNumber21, covarianceMatrixNumber22, covarianceMatrixNumber23, covarianceMatrixNumber24, covarianceMatrixNumber25 float32
+	valid                                                                                                                            bool
 }
 
 var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
@@ -75,35 +80,89 @@ func advMessageHandler(
 	return func(client mqtt.Client, msg mqtt.Message) {
 		payload := msg.Payload()
 		reader := bytes.NewReader(payload)
-		if len(payload) == 24 {
+		// NOTE, float in C = float32 in Go!
+		if len(payload) == 124 { // 24 bytes for the initial fields + 25*4 bytes for the covariance matrix (each float32 is 4 bytes)
 			m := advMsgUnpacking{}
-			binary.Read(reader, binary.LittleEndian, &m.id)
-			binary.Read(reader, binary.LittleEndian, &m.x)
-			binary.Read(reader, binary.LittleEndian, &m.y)
-			binary.Read(reader, binary.LittleEndian, &m.theta)
-			binary.Read(reader, binary.LittleEndian, &m.ir1x)
-			binary.Read(reader, binary.LittleEndian, &m.ir1y)
-			binary.Read(reader, binary.LittleEndian, &m.ir2x)
-			binary.Read(reader, binary.LittleEndian, &m.ir2y)
-			binary.Read(reader, binary.LittleEndian, &m.ir3x)
-			binary.Read(reader, binary.LittleEndian, &m.ir3y)
-			binary.Read(reader, binary.LittleEndian, &m.ir4x)
-			binary.Read(reader, binary.LittleEndian, &m.ir4y)
-			binary.Read(reader, binary.LittleEndian, &m.valid) //valid is not used in the robot code
+			binary.Read(reader, binary.LittleEndian, &m.id)    //1
+			binary.Read(reader, binary.LittleEndian, &m.x)     //2
+			binary.Read(reader, binary.LittleEndian, &m.y)     //2
+			binary.Read(reader, binary.LittleEndian, &m.theta) //2
+			binary.Read(reader, binary.LittleEndian, &m.ir1x)  //2
+			binary.Read(reader, binary.LittleEndian, &m.ir1y)  //2
+			binary.Read(reader, binary.LittleEndian, &m.ir2x)  //2
+			binary.Read(reader, binary.LittleEndian, &m.ir2y)  //2
+			binary.Read(reader, binary.LittleEndian, &m.ir3x)  //2
+			binary.Read(reader, binary.LittleEndian, &m.ir3y)  //2
+			binary.Read(reader, binary.LittleEndian, &m.ir4x)  //2
+			binary.Read(reader, binary.LittleEndian, &m.ir4y)  //2
+
+			binary.Read(reader, binary.LittleEndian, &m.covarianceMatrixNumber1)  //4 //covarianceMatrixNumber is not used in the robot code
+			binary.Read(reader, binary.LittleEndian, &m.covarianceMatrixNumber2)  //4
+			binary.Read(reader, binary.LittleEndian, &m.covarianceMatrixNumber3)  //4
+			binary.Read(reader, binary.LittleEndian, &m.covarianceMatrixNumber4)  //4
+			binary.Read(reader, binary.LittleEndian, &m.covarianceMatrixNumber5)  //4
+			binary.Read(reader, binary.LittleEndian, &m.covarianceMatrixNumber6)  //4
+			binary.Read(reader, binary.LittleEndian, &m.covarianceMatrixNumber7)  //4
+			binary.Read(reader, binary.LittleEndian, &m.covarianceMatrixNumber8)  //4
+			binary.Read(reader, binary.LittleEndian, &m.covarianceMatrixNumber9)  //4
+			binary.Read(reader, binary.LittleEndian, &m.covarianceMatrixNumber10) //4
+			binary.Read(reader, binary.LittleEndian, &m.covarianceMatrixNumber11) //4
+			binary.Read(reader, binary.LittleEndian, &m.covarianceMatrixNumber12) //4
+			binary.Read(reader, binary.LittleEndian, &m.covarianceMatrixNumber13) //4
+			binary.Read(reader, binary.LittleEndian, &m.covarianceMatrixNumber14) //4
+			binary.Read(reader, binary.LittleEndian, &m.covarianceMatrixNumber15) //4
+			binary.Read(reader, binary.LittleEndian, &m.covarianceMatrixNumber16) //4
+			binary.Read(reader, binary.LittleEndian, &m.covarianceMatrixNumber17) //4
+			binary.Read(reader, binary.LittleEndian, &m.covarianceMatrixNumber18) //4
+			binary.Read(reader, binary.LittleEndian, &m.covarianceMatrixNumber19) //4
+			binary.Read(reader, binary.LittleEndian, &m.covarianceMatrixNumber20) //4
+			binary.Read(reader, binary.LittleEndian, &m.covarianceMatrixNumber21) //4
+			binary.Read(reader, binary.LittleEndian, &m.covarianceMatrixNumber22) //4
+			binary.Read(reader, binary.LittleEndian, &m.covarianceMatrixNumber23) //4
+			binary.Read(reader, binary.LittleEndian, &m.covarianceMatrixNumber24) //4
+			binary.Read(reader, binary.LittleEndian, &m.covarianceMatrixNumber25) //4
+
+			binary.Read(reader, binary.LittleEndian, &m.valid) //1 //valid is not used in the robot code
 
 			newMsg := types.AdvMsg{
-				Id:    int(m.id),
-				X:     int(m.x),
-				Y:     int(m.y),
-				Theta: int(m.theta),
-				Ir1x:  int(m.ir1x),
-				Ir1y:  int(m.ir1y),
-				Ir2x:  int(m.ir2x),
-				Ir2y:  int(m.ir2y),
-				Ir3x:  int(m.ir3x),
-				Ir3y:  int(m.ir3y),
-				Ir4x:  int(m.ir4x),
-				Ir4y:  int(m.ir4y),
+				Id:                       int(m.id),
+				X:                        int(m.x),
+				Y:                        int(m.y),
+				Theta:                    int(m.theta),
+				Ir1x:                     int(m.ir1x),
+				Ir1y:                     int(m.ir1y),
+				Ir2x:                     int(m.ir2x),
+				Ir2y:                     int(m.ir2y),
+				Ir3x:                     int(m.ir3x),
+				Ir3y:                     int(m.ir3y),
+				Ir4x:                     int(m.ir4x),
+				Ir4y:                     int(m.ir4y),
+				CovarianceMatrixNumber1:  float32(m.covarianceMatrixNumber1),
+				CovarianceMatrixNumber2:  float32(m.covarianceMatrixNumber2),
+				CovarianceMatrixNumber3:  float32(m.covarianceMatrixNumber3),
+				CovarianceMatrixNumber4:  float32(m.covarianceMatrixNumber4),
+				CovarianceMatrixNumber5:  float32(m.covarianceMatrixNumber5),
+				CovarianceMatrixNumber6:  float32(m.covarianceMatrixNumber6),
+				CovarianceMatrixNumber7:  float32(m.covarianceMatrixNumber7),
+				CovarianceMatrixNumber8:  float32(m.covarianceMatrixNumber8),
+				CovarianceMatrixNumber9:  float32(m.covarianceMatrixNumber9),
+				CovarianceMatrixNumber10: float32(m.covarianceMatrixNumber10),
+				CovarianceMatrixNumber11: float32(m.covarianceMatrixNumber11),
+				CovarianceMatrixNumber12: float32(m.covarianceMatrixNumber12),
+				CovarianceMatrixNumber13: float32(m.covarianceMatrixNumber13),
+				CovarianceMatrixNumber14: float32(m.covarianceMatrixNumber14),
+				CovarianceMatrixNumber15: float32(m.covarianceMatrixNumber15),
+				CovarianceMatrixNumber16: float32(m.covarianceMatrixNumber16),
+				CovarianceMatrixNumber17: float32(m.covarianceMatrixNumber17),
+				CovarianceMatrixNumber18: float32(m.covarianceMatrixNumber18),
+				CovarianceMatrixNumber19: float32(m.covarianceMatrixNumber19),
+				CovarianceMatrixNumber20: float32(m.covarianceMatrixNumber20),
+				CovarianceMatrixNumber21: float32(m.covarianceMatrixNumber21),
+				CovarianceMatrixNumber22: float32(m.covarianceMatrixNumber22),
+				CovarianceMatrixNumber23: float32(m.covarianceMatrixNumber23),
+				CovarianceMatrixNumber24: float32(m.covarianceMatrixNumber24),
+				CovarianceMatrixNumber25: float32(m.covarianceMatrixNumber25),
+				// CovarianceMatrix: m.covarianceMatrix,
 			}
 
 			chIncomingMsg <- newMsg

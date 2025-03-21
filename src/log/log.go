@@ -26,7 +26,7 @@ func InitPositionLogger() *log.Logger {
 		log.Fatal(err)
 	}
 	var logger = log.New(file, "", 0)
-	logger.Println("time,id,x[cm],y[cm],theta[degrees] (the delimiter is a space)")
+	logger.Println("time id x[cm] y[cm] theta[degrees] EKFcovarianceMatrix[25] (the delimiter is a space)")
 	logger.SetFlags(log.Ltime | log.Lmicroseconds)
 	return logger
 }
