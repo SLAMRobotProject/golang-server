@@ -15,6 +15,7 @@ func main() {
 	chPublishInit := make(chan [4]int, 3)
 	chReceive := make(chan types.AdvMsg, 3)
 	chReceiveMapFromRobot := make(chan types.RectangleMsg, 3)
+	chPublishHome := make(chan types.HomePathMsg, 1)
 
 	//chSubRecieve2 :=make(chan )
 	//g2b = gui to backend
@@ -36,6 +37,7 @@ func main() {
 		chG2bCommand,
 		chReceiveMapFromRobot,
 		chB2gMapRectangle,
+		chPublishHome,
 	)
 
 	client := communication.InitMqtt()
@@ -56,6 +58,8 @@ func main() {
 	)
 
 	go gui.ThreadMapping(mapImage, mapCanvas, chB2gMapRectangle)
+
+	go communication.ThreadMqttHomePath(client, chPublishHome)
 
 	fasitWindow.Show()
 	serverWindow.Show()

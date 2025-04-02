@@ -95,6 +95,30 @@ func ThreadMqttPublish(
 	}
 }
 
+func ThreadMqttHomePath(
+	client mqtt.Client,
+	chPublishHome <-chan types.HomePathMsg,
+) {
+	for {
+		select {
+		case msg := <-chPublishHome:
+			buf := new(bytes.Buffer)
+			binary.Write(buf, binary.LittleEndian, uint8(3)) // Message type = 3 = home path
+			for _, pt := range msg.Path {
+				binary.Write(buf, binary.LittleEndian, int16(pt[0])) // x
+				binary.Write(buf, binary.LittleEndian, int16(pt[1])) // y
+			}
+			topic := "v2/server/NRF_" + strconv.Itoa(msg.Id) + "/homeroute"
+
+			//test
+			log.GGeneralLogger.Printf("Sending home path to robot %d: %v", msg.Id, msg.Path)
+
+			token := client.Publish(topic, 0, false, buf.Bytes())
+			token.Wait()
+		}
+	}
+}
+
 func advMessageHandler(
 	chIncomingMsg chan<- types.AdvMsg,
 ) mqtt.MessageHandler {

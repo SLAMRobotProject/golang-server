@@ -1,22 +1,15 @@
 package pathfinding
 
 import (
-	"golang-server/src/backend"
+	"golang-server/config"
 	"container/heap"
-	"fmt"
 	"math"
 )
 
 const (
-	ROWS               = 10
-	COLS               = 10
-	NUM_PARENTS        = 4
+	NUM_PARENTS           = 4
 	MIN_OBSTACLE_DISTANCE = 0
-	TURN_PENALTY       = 2
-	
-	mapOpen     uint8 = 1 << iota //1
-	mapUnknown                    //2
-	mapObstacle                   //4
+	TURN_PENALTY          = 2
 )
 
 type Pair struct {
@@ -52,9 +45,8 @@ func (pq PriorityQueue) Swap(i, j int) {
 }
 
 func (pq *PriorityQueue) Push(x interface{}) {
-	n := len(*pq)
 	item := x.(*pPair)
-	item.index = n
+	item.index = len(*pq)
 	*pq = append(*pq, item)
 }
 
@@ -74,12 +66,12 @@ func (pq *PriorityQueue) Dequeue() *pPair {
 	return heap.Pop(pq).(*pPair)
 }
 
-func isValid(row, col int, grid [ROWS][COLS]int) bool {
+func isValid(row, col int, grid [config.MapSize][config.MapSize]uint8) bool {
 	for dx := -MIN_OBSTACLE_DISTANCE; dx <= MIN_OBSTACLE_DISTANCE; dx++ {
 		for dy := -MIN_OBSTACLE_DISTANCE; dy <= MIN_OBSTACLE_DISTANCE; dy++ {
 			r := row + dx
 			c := col + dy
-			if r < 0 || r >= ROWS || c < 0 || c >= COLS || grid[r][c] == mapObstacle {
+			if r < 0 || r >= config.MapSize || c < 0 || c >= config.MapSize || grid[r][c] == config.MapObstacle {
 				return false
 			}
 		}
@@ -95,7 +87,7 @@ func heuristic(row, col int, dest Pair) int {
 	return int(math.Abs(float64(row-dest.X)) + math.Abs(float64(col-dest.Y)))
 }
 
-func tracePath(cellDetails [ROWS][COLS]Cell, dest Pair) []Pair {
+func tracePath(cellDetails [config.MapSize][config.MapSize]Cell, dest Pair) []Pair {
 	row, col := dest.X, dest.Y
 	var path []Pair
 
@@ -153,26 +145,19 @@ func extractTurnPoints(fullPath []Pair) []Pair {
 	return turnPoints
 }
 
-
-func A_Star(grid [ROWS][COLS]int, start, end Pair) []Pair {
-	if !isValid(start.X, start.Y, grid) {
-		fmt.Println("Start is invalid")
-		return nil
-	}
-	if !isValid(end.X, end.Y, grid) {
-		fmt.Println("End is invalid")
-		return nil
+func A_Star(grid [config.MapSize][config.MapSize]uint8, start, end Pair) []Pair {
+	if !isValid(start.X, start.Y, grid) || !isValid(end.X, end.Y, grid) {
+		return []Pair{}
 	}
 	if isDestination(start.X, start.Y, end) {
-		fmt.Println("Start is the destination")
-		return nil
+		return []Pair{}
 	}
 
-	var closedList [ROWS][COLS]bool
-	var cellDetails [ROWS][COLS]Cell
+	var closedList [config.MapSize][config.MapSize]bool
+	var cellDetails [config.MapSize][config.MapSize]Cell
 
-	for i := 0; i < ROWS; i++ {
-		for j := 0; j < COLS; j++ {
+	for i := 0; i < config.MapSize; i++ {
+		for j := 0; j < config.MapSize; j++ {
 			cellDetails[i][j].f = math.MaxInt32
 			cellDetails[i][j].g = math.MaxInt32
 			cellDetails[i][j].h = math.MaxInt32
@@ -202,12 +187,12 @@ func A_Star(grid [ROWS][COLS]int, start, end Pair) []Pair {
 			dCol := col - cellDetails[row][col].parents[i].Y
 			for dx := -1; dx <= 1; dx++ {
 				for dy := -1; dy <= 1; dy++ {
-					if (dx == 0 && dy == 0) || (math.Abs(float64(dx) + math.Abs(float64(dy))) != 1) {
+					if (dx == 0 && dy == 0) || (math.Abs(float64(dx)+math.Abs(float64(dy))) != 1) {
 						continue
 					}
 					r := row + dx
 					c := col + dy
-					if r >= 0 && r < ROWS && c >= 0 && c < COLS && isValid(r, c, grid) {
+					if r >= 0 && r < config.MapSize && c >= 0 && c < config.MapSize && isValid(r, c, grid) {
 						newG := cellDetails[row][col].g + 1
 						if dRow != dx || dCol != dy {
 							newG += TURN_PENALTY
@@ -233,5 +218,5 @@ func A_Star(grid [ROWS][COLS]int, start, end Pair) []Pair {
 			}
 		}
 	}
-	return nil
+	return []Pair{}
 }

@@ -39,3 +39,8 @@ type UpdateGui struct {
 	NewOpen     [][2]int
 	NewObstacle [][2]int
 }
+
+type HomePathMsg struct {
+	Id   int
+	Path [][2]int // x, y in cm
+}

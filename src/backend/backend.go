@@ -6,16 +6,10 @@ import (
 	"golang-server/log"
 	"golang-server/types"
 	"golang-server/utilities"
+	"golang-server/pathfinding"
 	"math"
 	"time"
 	//"golang.org/x/text/cases"
-)
-
-// using binary flags to represent the map to allow bitwise operations
-const (
-	mapOpen     uint8 = 1 << iota //1
-	mapUnknown                    //2
-	mapObstacle                   //4
 )
 
 func initRobotState(x, y, theta int) *types.RobotState {
@@ -34,7 +28,7 @@ func initFullSlamState() *fullSlamState {
 	s := fullSlamState{}
 	for i := 0; i < config.MapSize; i++ {
 		for j := 0; j < config.MapSize; j++ {
-			s.areaMap[i][j] = mapUnknown
+			s.areaMap[i][j] = config.MapUnknown
 		}
 	}
 	s.id2index = make(map[int]int)
@@ -54,6 +48,7 @@ func ThreadBackend(
 	chG2bCommand <-chan types.Command,
 	chReceiveMapFromRobot <-chan types.RectangleMsg,
 	chB2gMapRectangle chan<- types.RectangleMsg,
+	chPublishHome chan<- types.HomePathMsg,
 ) {
 	var state *fullSlamState = initFullSlamState()
 
@@ -61,6 +56,8 @@ func ThreadBackend(
 	positionLogger := log.InitPositionLogger()
 	pendingInit := map[int]struct{}{} //simple and efficient way in golang to create a set to check values.
 	guiUpdateTicker := time.NewTicker(time.Second / config.GuiFrameRate)
+	pathUpdateTicker := time.NewTicker(time.Duration(config.PathUpdateIntervalSec) * time.Second)
+
 	for {
 		select {
 		case <-guiUpdateTicker.C:
@@ -74,6 +71,34 @@ func ThreadBackend(
 			//reset newOpen and newObstacle
 			state.newOpen = [][2]int{}
 			state.newObstacle = [][2]int{}
+
+		case <-pathUpdateTicker.C:
+			for id := range state.id2index {
+				robot := state.getRobot(id)
+				start := pathfinding.Pair{X: config.MapCenterX + robot.X, Y: config.MapCenterY - robot.Y}
+				end := pathfinding.Pair{X: config.MapCenterX + config.InitialStartPositionX, Y: config.MapCenterY - config.InitialStartPositionX}
+		
+				path := pathfinding.A_Star(state.areaMap, start, end)
+
+				var turnPoints [][2]int
+				for _, p := range path {
+					xCm := p.X - config.MapCenterX
+					yCm := config.MapCenterY - p.Y
+					turnPoints = append(turnPoints, [2]int{xCm, yCm})
+				}
+
+				// If the channel is full, we clear it to avoid blocking.
+				select {
+				case <-chPublishHome:
+				default:
+				}
+
+				chPublishHome <- types.HomePathMsg{
+					Id:   id,
+					Path: turnPoints,
+				}					
+			}
+		
 		case command := <-chG2bCommand:
 			switch command.CommandType {
 			case types.AutomaticCommand:
@@ -87,6 +112,7 @@ func ThreadBackend(
 				xRobotBody, yRobotBody := utilities.Rotate(float64(command.X-robot.XInit)*10, float64(command.Y-robot.YInit)*10, -float64(robot.ThetaInit))
 				chPublish <- [3]int{id, int(xRobotBody), int(yRobotBody)}
 				log.GGeneralLogger.Println("Publishing automatic input to robot with ID: ", command.Id, " x: ", command.X, " y: ", command.Y, ".")
+
 			case types.ManualCommand:
 				//convert to mm because robot uses mm, and rotate back from init to get robot body coordinates
 				robot := state.getRobot(command.Id)
@@ -94,6 +120,7 @@ func ThreadBackend(
 				chPublish <- [3]int{command.Id, int(xRobotBody), int(yRobotBody)}
 				log.GGeneralLogger.Println("Publishing manual input to robot with ID: ", command.Id, " x: ", command.X, " y: ", command.Y, ".")
 			}
+
 		case msg := <-chReceive:
 			if _, exist := pendingInit[msg.Id]; exist {
 				//skip
@@ -119,6 +146,7 @@ func ThreadBackend(
 				}
 			}
 			prevMsg = msg
+
 		case msg := <-chReceiveMapFromRobot:
 			//fmt.Print("\n", msg.X, msg.Y, msg.Height, msg.Width, msg.Obstacle, msg.Reachable)
 			chB2gMapRectangle <- msg //Send the rectangle to mapping
@@ -136,9 +164,9 @@ func ThreadBackend(
 func (s *fullSlamState) setMapValue(x, y int, value uint8) {
 	s.areaMap[x][y] = value
 	switch value {
-	case mapOpen:
+	case config.MapOpen:
 		s.newOpen = append(s.newOpen, [2]int{x, y})
-	case mapObstacle:
+	case config.MapObstacle:
 		s.newObstacle = append(s.newObstacle, [2]int{x, y})
 	}
 }
@@ -202,10 +230,10 @@ func (s *fullSlamState) addLineToMap(id, x1, y1 int) {
 	for i := 0; i < len(indexPoints); i++ {
 		x := indexPoints[i][0]
 		y := indexPoints[i][1]
-		s.setMapValue(x, y, mapOpen)
+		s.setMapValue(x, y, config.MapOpen)
 	}
 	if obstruction {
-		s.setMapValue(x1Index, y1Index, mapObstacle)
+		s.setMapValue(x1Index, y1Index, config.MapObstacle)
 	}
 }
 
