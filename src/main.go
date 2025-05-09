@@ -42,7 +42,7 @@ func main() {
 
 	client := communication.InitMqtt()
 	communication.Subscribe(client, chReceive, chReceiveMapFromRobot)
-	go communication.ThreadMqttPublish(client, chPublish, chPublishInit)
+	go communication.ThreadMqttPublish(client, chPublish, chPublishInit, chPublishHome)
 
 	//window.ShowAndRun() must be run in the main thread. So the GUI must be initialized here.
 	app, serverWindow, mapWindow,fasitWindow, serverMapImage, mapImage, serverMapCanvas, mapCanvas, allRobotsHandle, manualInput, initInput := gui.InitGui(chG2bCommand)
@@ -58,8 +58,6 @@ func main() {
 	)
 
 	go gui.ThreadMapping(mapImage, mapCanvas, chB2gMapRectangle)
-
-	go communication.ThreadMqttHomePath(client, chPublishHome)
 
 	fasitWindow.Show()
 	serverWindow.Show()

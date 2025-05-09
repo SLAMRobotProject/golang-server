@@ -8,7 +8,7 @@ import (
 
 const (
 	NUM_PARENTS           = 4
-	MIN_OBSTACLE_DISTANCE = 0
+	MIN_OBSTACLE_DISTANCE = 15
 	TURN_PENALTY          = 2
 )
 
@@ -187,7 +187,7 @@ func A_Star(grid [config.MapSize][config.MapSize]uint8, start, end Pair) []Pair 
 			dCol := col - cellDetails[row][col].parents[i].Y
 			for dx := -1; dx <= 1; dx++ {
 				for dy := -1; dy <= 1; dy++ {
-					if (dx == 0 && dy == 0) || (math.Abs(float64(dx)+math.Abs(float64(dy))) != 1) {
+					if (dx == 0 && dy == 0) {
 						continue
 					}
 					r := row + dx

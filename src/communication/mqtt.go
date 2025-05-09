@@ -61,6 +61,7 @@ func ThreadMqttPublish(
 	client mqtt.Client,
 	chPublish <-chan [3]int,
 	chPublishInit <-chan [4]int,
+	chPublishHome <-chan types.HomePathMsg,
 ) {
 	//prefixByte := []byte{2} //because the robot code expects a byte here
 	//init:=false
@@ -78,7 +79,7 @@ func ThreadMqttPublish(
 		case msgInit := <-chPublishInit:
 			buf := new(bytes.Buffer)
 			binary.Write(buf, binary.LittleEndian, uint8(2))
-			binary.Write(buf, binary.LittleEndian, int16(msgInit[1]))                                          //x
+			binary.Write(buf, binary.LittleEndian, int16(msgInit[1]))                                         //x
 			binary.Write(buf, binary.LittleEndian, int16(msgInit[2]))                                         //y
 			binary.Write(buf, binary.LittleEndian, int16(msgInit[3]))                                         //theta
 			token := client.Publish("v2/server/NRF_"+strconv.Itoa(msgInit[0])+"/serverpub", 0, false, buf.Bytes()) //Publish to coresponding robot
@@ -89,32 +90,21 @@ func ThreadMqttPublish(
 				fmt.Printf("Buffer:%v\n", buf.Bytes())
 
 			}
-			//Resend in default case?
-		}
-		
-	}
-}
-
-func ThreadMqttHomePath(
-	client mqtt.Client,
-	chPublishHome <-chan types.HomePathMsg,
-) {
-	for {
-		select {
-		case msg := <-chPublishHome:
+		case msgHome := <-chPublishHome:
 			buf := new(bytes.Buffer)
 			binary.Write(buf, binary.LittleEndian, uint8(3)) // Message type = 3 = home path
-			for _, pt := range msg.Path {
-				binary.Write(buf, binary.LittleEndian, int16(pt[0])) // x
-				binary.Write(buf, binary.LittleEndian, int16(pt[1])) // y
+			binary.Write(buf, binary.LittleEndian, uint8(len(msgHome.Path))) // Number of points in the path
+			for _, pt := range msgHome.Path {
+				binary.Write(buf, binary.LittleEndian, int16(pt[0]*10)) // x
+				binary.Write(buf, binary.LittleEndian, int16(pt[1]*10)) // y
 			}
-			topic := "v2/server/NRF_" + strconv.Itoa(msg.Id) + "/homeroute"
-
 			//test
-			log.GGeneralLogger.Printf("Sending home path to robot %d: %v", msg.Id, msg.Path)
+			log.GGeneralLogger.Printf("Sending home path to robot %d: %v", msgHome.Id, msgHome.Path)
 
+			topic := "v2/server/NRF_" + strconv.Itoa(msgHome.Id) + "/home_route"
 			token := client.Publish(topic, 0, false, buf.Bytes())
 			token.Wait()
+			time.Sleep(time.Second)
 		}
 	}
 }

@@ -48,7 +48,7 @@ func ThreadBackend(
 	chG2bCommand <-chan types.Command,
 	chReceiveMapFromRobot <-chan types.RectangleMsg,
 	chB2gMapRectangle chan<- types.RectangleMsg,
-	chPublishHome chan<- types.HomePathMsg,
+	chPublishHome chan types.HomePathMsg,
 ) {
 	var state *fullSlamState = initFullSlamState()
 
