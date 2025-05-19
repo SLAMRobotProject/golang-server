@@ -2,12 +2,15 @@ package backend
 
 import (
 	//"fmt"
+	"encoding/csv"
+	"fmt"
 	"golang-server/config"
 	"golang-server/log"
+	"golang-server/pathfinding"
 	"golang-server/types"
 	"golang-server/utilities"
-	"golang-server/pathfinding"
 	"math"
+	"os"
 	"time"
 	//"golang.org/x/text/cases"
 )
@@ -24,7 +27,7 @@ type fullSlamState struct {
 	id2index    map[int]int
 }
 
-func initFullSlamState() *fullSlamState {
+func InitFullSlamState() *fullSlamState {
 	s := fullSlamState{}
 	for i := 0; i < config.MapSize; i++ {
 		for j := 0; j < config.MapSize; j++ {
@@ -39,8 +42,9 @@ func initFullSlamState() *fullSlamState {
 // The map is very large and sending it gives a warning. This only sends updates.
 
 func ThreadBackend(
+	state *fullSlamState,
 	chPublish chan<- [3]int,
-	chPublishInit chan<-[4]int,
+	chPublishInit chan<- [4]int,
 	chReceive <-chan types.AdvMsg,
 	chB2gRobotPendingInit chan<- int,
 	chB2gUpdate chan<- types.UpdateGui,
@@ -50,8 +54,6 @@ func ThreadBackend(
 	chB2gMapRectangle chan<- types.RectangleMsg,
 	chPublishHome chan types.HomePathMsg,
 ) {
-	var state *fullSlamState = initFullSlamState()
-
 	prevMsg := types.AdvMsg{}
 	positionLogger := log.InitPositionLogger()
 	pendingInit := map[int]struct{}{} //simple and efficient way in golang to create a set to check values.
@@ -77,7 +79,7 @@ func ThreadBackend(
 				robot := state.getRobot(id)
 				start := pathfinding.Pair{X: config.MapCenterX + robot.X, Y: config.MapCenterY - robot.Y}
 				end := pathfinding.Pair{X: config.MapCenterX + config.InitialStartPositionX, Y: config.MapCenterY - config.InitialStartPositionX}
-		
+
 				path := pathfinding.A_Star(state.areaMap, start, end)
 
 				var turnPoints [][2]int
@@ -96,9 +98,9 @@ func ThreadBackend(
 				chPublishHome <- types.HomePathMsg{
 					Id:   id,
 					Path: turnPoints,
-				}					
+				}
 			}
-		
+
 		case command := <-chG2bCommand:
 			switch command.CommandType {
 			case types.AutomaticCommand:
@@ -156,7 +158,7 @@ func ThreadBackend(
 			state.id2index[id] = len(state.multiRobot)
 			state.multiRobot = append(state.multiRobot, *initRobotState(init[1], init[2], init[3]))
 			delete(pendingInit, id)
-			chPublishInit<-init //Send init to communication
+			chPublishInit <- init //Send init to communication
 		}
 	}
 }
@@ -240,4 +242,31 @@ func (s *fullSlamState) addLineToMap(id, x1, y1 int) {
 func calculateMapIndex(x, y int) (int, int) {
 	//Input is given in map coordinates (i.e. robot positions) with normal axis and origo as defined in the config.
 	return config.MapCenterX + x, config.MapCenterY - y
+}
+
+func (s *fullSlamState) SaveMap(filename string) error {
+	f, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	w := csv.NewWriter(f)
+	defer w.Flush()
+
+	for y := 0; y < config.MapSize; y++ {
+		row := make([]string, config.MapSize)
+		for x := 0; x < config.MapSize; x++ {
+			row[x] = fmt.Sprintf("%d", s.areaMap[y][x])
+		}
+		if err := w.Write(row); err != nil {
+			return fmt.Errorf("write csv row %d: %w", y, err)
+		}
+	}
+
+	if err := w.Error(); err != nil {
+		return fmt.Errorf("error flushing csv writer: %w", err)
+	}
+
+	return nil
 }

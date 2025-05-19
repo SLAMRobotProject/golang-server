@@ -92,8 +92,8 @@ func ThreadMqttPublish(
 			}
 		case msgHome := <-chPublishHome:
 			buf := new(bytes.Buffer)
-			binary.Write(buf, binary.LittleEndian, uint8(3)) // Message type = 3 = home path
-			binary.Write(buf, binary.LittleEndian, uint8(len(msgHome.Path))) // Number of points in the path
+			binary.Write(buf, binary.LittleEndian, uint8(3)) 					// Message type = 3 = home path
+			binary.Write(buf, binary.LittleEndian, uint8(len(msgHome.Path))) 	// Number of points in the path
 			for _, pt := range msgHome.Path {
 				binary.Write(buf, binary.LittleEndian, int16(pt[0]*10)) // x
 				binary.Write(buf, binary.LittleEndian, int16(pt[1]*10)) // y

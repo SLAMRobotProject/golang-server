@@ -1,10 +1,15 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"golang-server/backend"
 	"golang-server/communication"
 	"golang-server/gui"
 	"golang-server/types"
+	"os"
+	"os/signal"
+	"syscall"
 )
 
 func main() {
@@ -27,7 +32,9 @@ func main() {
 	chB2gRobotPendingInit := make(chan int, 3)   //Buffered so it won't block ThreadBackend()
 	chB2gMapRectangle := make(chan types.RectangleMsg, 3)
 
+	state := backend.InitFullSlamState()
 	go backend.ThreadBackend( //add chPublishInit
+		state,
 		chPublish,
 		chPublishInit,
 		chReceive,
@@ -45,7 +52,7 @@ func main() {
 	go communication.ThreadMqttPublish(client, chPublish, chPublishInit, chPublishHome)
 
 	//window.ShowAndRun() must be run in the main thread. So the GUI must be initialized here.
-	app, serverWindow, mapWindow,fasitWindow, serverMapImage, mapImage, serverMapCanvas, mapCanvas, allRobotsHandle, manualInput, initInput := gui.InitGui(chG2bCommand)
+	app, serverWindow, mapWindow, fasitWindow, serverMapImage, mapImage, serverMapCanvas, mapCanvas, allRobotsHandle, manualInput, initInput := gui.InitGui(chG2bCommand)
 	go gui.ThreadGuiUpdate(
 		serverMapImage,
 		serverMapCanvas,
@@ -62,6 +69,24 @@ func main() {
 	fasitWindow.Show()
 	serverWindow.Show()
 	mapWindow.Show()
+
+	// catch Ctrl-C/SIGTERM and trigger app.Quit()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		fmt.Println("⚠️ shutdown signal received, quitting GUI…")
+		app.Quit()
+	}()
+
+	// Run must be on main thread
 	app.Run()
 
+	// when Run() exits, all windows are closed – now persist the map
+	fmt.Println("Shutting down, saving map…")
+	if err := state.SaveMap("map.csv"); err != nil {
+		fmt.Println("⚠️ failed to save map:", err)
+	} else {
+		fmt.Println("✔️ map saved to map.csv")
+	}
 }
