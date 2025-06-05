@@ -47,11 +47,19 @@ func initFullSlamState() *fullSlamState {
 func ThreadBackend(
 	chPublish chan<- [3]int,
 	chPublishInit chan<-[4]int,
+<<<<<<< HEAD
+=======
+	chPublishToggleMapping chan<-[2]int,
+>>>>>>> efdd8b5 (This server is adapted for the mapping scheme, should be checked before merging with main)
 	chReceive <-chan types.AdvMsg,
 	chB2gRobotPendingInit chan<- int,
 	chB2gUpdate chan<- types.UpdateGui,
 	chG2bRobotInit <-chan [4]int,
 	chG2bCommand <-chan types.Command,
+<<<<<<< HEAD
+=======
+	chG2bToggleMapping <-chan [2]int,
+>>>>>>> efdd8b5 (This server is adapted for the mapping scheme, should be checked before merging with main)
 	chReceiveMapFromRobot <-chan types.RectangleMsg,
 	chB2gMapRectangle chan<- types.RectangleMsg,
 ) {
@@ -97,8 +105,13 @@ func ThreadBackend(
 		case msg := <-chReceive:
 			if _, exist := pendingInit[msg.Id]; exist {
 				//skip
+<<<<<<< HEAD
 			} else if _, exist := state.id2index[msg.Id]; !exist {
 				pendingInit[msg.Id] = struct{}{}
+=======
+			} else if _, exist := state.id2index[msg.Id]; !exist { //Check if this robot has been here before, must check for new init or reinit here ish
+				pendingInit[msg.Id] = struct{}{} //Used to determine whether there is a robot/or to decide whether it has been logged
+>>>>>>> efdd8b5 (This server is adapted for the mapping scheme, should be checked before merging with main)
 				chB2gRobotPendingInit <- msg.Id //Buffered channel, so it will not block.
 			} else {
 				//robot update
@@ -120,7 +133,10 @@ func ThreadBackend(
 			}
 			prevMsg = msg
 		case msg := <-chReceiveMapFromRobot:
+<<<<<<< HEAD
 			//fmt.Print("\n", msg.X, msg.Y, msg.Height, msg.Width, msg.Obstacle, msg.Reachable)
+=======
+>>>>>>> efdd8b5 (This server is adapted for the mapping scheme, should be checked before merging with main)
 			chB2gMapRectangle <- msg //Send the rectangle to mapping
 
 		case init := <-chG2bRobotInit:
@@ -128,7 +144,13 @@ func ThreadBackend(
 			state.id2index[id] = len(state.multiRobot)
 			state.multiRobot = append(state.multiRobot, *initRobotState(init[1], init[2], init[3]))
 			delete(pendingInit, id)
+<<<<<<< HEAD
 			chPublishInit<-init //Send init to communication
+=======
+			chPublishInit<-init //Send init to communication to initialize robot mapping
+		case toggleMapping:=<-chG2bToggleMapping:
+			chPublishToggleMapping<-toggleMapping
+>>>>>>> efdd8b5 (This server is adapted for the mapping scheme, should be checked before merging with main)
 		}
 	}
 }

@@ -9,9 +9,13 @@ type AdvMsg struct {
 
 type RectangleMsg struct{
 	Id		int
+<<<<<<< HEAD
 	TotalMap bool
 	X,Y,Width,Height,Obstacle int
 	Reachable bool
+=======
+	X,Y,Obstacle int
+>>>>>>> efdd8b5 (This server is adapted for the mapping scheme, should be checked before merging with main)
 }
 
 type MapRectangle struct{

@@ -20,4 +20,8 @@ const WindowBreadth = 650         //px
 const WindowHeight = 400          //px
 
 //MAPPING
+<<<<<<< HEAD
 const InitialSquareLength = 25	//cm, INITIAL_RECTANGLE_SIDELENGTH in robot code
+=======
+const InitialSquareLength = 25	//cm, The sidelength used 
+>>>>>>> efdd8b5 (This server is adapted for the mapping scheme, should be checked before merging with main)

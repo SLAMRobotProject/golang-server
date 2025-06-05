@@ -36,10 +36,15 @@ type advMsgUnpacking struct {
 
 type recMsgUnpacking struct {
 	id 					uint8
+<<<<<<< HEAD
 	totalMap			bool
 	x, y, width, height int16
 	obstacle            uint8
 	reachable           bool
+=======
+	x, y				int16
+	obstacle            uint8
+>>>>>>> efdd8b5 (This server is adapted for the mapping scheme, should be checked before merging with main)
 }
 
 var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
@@ -61,23 +66,42 @@ func ThreadMqttPublish(
 	client mqtt.Client,
 	chPublish <-chan [3]int,
 	chPublishInit <-chan [4]int,
+<<<<<<< HEAD
 ) {
 	//prefixByte := []byte{2} //because the robot code expects a byte here
 	//init:=false
+=======
+	chPublishToggleMapping <-chan [2]int,
+) {
+>>>>>>> efdd8b5 (This server is adapted for the mapping scheme, should be checked before merging with main)
 
 	for {
 		select {
 		case msgCommand := <-chPublish:
+<<<<<<< HEAD
 			buf := new(bytes.Buffer)
 			binary.Write(buf, binary.LittleEndian, uint8(1))
+=======
+			prefixByte := []byte{2}
+			buf := new(bytes.Buffer)
+			binary.Write(buf, binary.LittleEndian, uint8(1))
+			binary.Write(buf, binary.LittleEndian, prefixByte)
+>>>>>>> efdd8b5 (This server is adapted for the mapping scheme, should be checked before merging with main)
 			binary.Write(buf, binary.LittleEndian, int16(msgCommand[1]))
 			binary.Write(buf, binary.LittleEndian, int16(msgCommand[2]))
 			token := client.Publish("v2/server/NRF_"+strconv.Itoa(msgCommand[0])+"/serverpub", 0, false, buf.Bytes())
 			token.Wait()
 			time.Sleep(time.Second)
 		case msgInit := <-chPublishInit:
+<<<<<<< HEAD
 			buf := new(bytes.Buffer)
 			binary.Write(buf, binary.LittleEndian, uint8(2))
+=======
+			prefixByte := []byte{2}
+			buf := new(bytes.Buffer)
+			binary.Write(buf, binary.LittleEndian, uint8(2))
+			binary.Write(buf, binary.LittleEndian, prefixByte)
+>>>>>>> efdd8b5 (This server is adapted for the mapping scheme, should be checked before merging with main)
 			binary.Write(buf, binary.LittleEndian, int16(msgInit[1]))                                          //x
 			binary.Write(buf, binary.LittleEndian, int16(msgInit[2]))                                         //y
 			binary.Write(buf, binary.LittleEndian, int16(msgInit[3]))                                         //theta
@@ -90,6 +114,16 @@ func ThreadMqttPublish(
 
 			}
 			//Resend in default case?
+<<<<<<< HEAD
+=======
+		case msgToggleMapping := <-chPublishToggleMapping: //Publish start or stop command
+			buf:=new(bytes.Buffer)
+			binary.Write(buf,binary.LittleEndian,uint8(3))
+			binary.Write(buf,binary.LittleEndian,int16(msgToggleMapping[1]))
+			token := client.Publish("v2/server/NRF_"+strconv.Itoa(msgToggleMapping[0])+"/serverpub", 0, false, buf.Bytes()) //Publish to coresponding robot
+			token.Wait()
+			time.Sleep(time.Second)
+>>>>>>> efdd8b5 (This server is adapted for the mapping scheme, should be checked before merging with main)
 		}
 		
 	}
@@ -150,6 +184,7 @@ func recMessageHandler(
 	return func(client mqtt.Client, msg mqtt.Message) {
 		payload := msg.Payload()
 		reader := bytes.NewReader(payload)
+<<<<<<< HEAD
 		if len(payload) == 12 { //Amount of bytes in message
 			m := recMsgUnpacking{}
 			binary.Read(reader, binary.LittleEndian, &m.id)
@@ -170,6 +205,20 @@ func recMessageHandler(
 				Height:    int(m.height),
 				Obstacle:  int(m.obstacle),
 				Reachable: bool(m.reachable),
+=======
+		if len(payload) == 6 { //Amount of bytes in message
+			m := recMsgUnpacking{}
+			binary.Read(reader, binary.LittleEndian, &m.id)
+			binary.Read(reader, binary.LittleEndian, &m.x)
+			binary.Read(reader, binary.LittleEndian, &m.y)
+			binary.Read(reader, binary.LittleEndian, &m.obstacle)
+
+			newMsg := types.RectangleMsg{
+				Id: 	   int(m.id),
+				X:         int(m.x),
+				Y:         int(m.y),
+				Obstacle:  int(m.obstacle),
+>>>>>>> efdd8b5 (This server is adapted for the mapping scheme, should be checked before merging with main)
 			}
 			chIncomingMsg <- newMsg
 

@@ -31,7 +31,11 @@ var (
 
 func InitGui(
 	chG2bCommand chan<- types.Command,
+<<<<<<< HEAD
 ) (fyne.App, fyne.Window, fyne.Window, fyne.Window, *image.RGBA, *image.RGBA, *canvas.Image, *canvas.Image, *multiRobotHandle, *container.AppTabs, *container.AppTabs) {
+=======
+) (fyne.App, fyne.Window, fyne.Window, *image.RGBA, *image.RGBA, *canvas.Image, *canvas.Image, *multiRobotHandle, *container.AppTabs, *container.AppTabs, *container.AppTabs) {
+>>>>>>> efdd8b5 (This server is adapted for the mapping scheme, should be checked before merging with main)
 
 	a := app.New()
 	w := a.NewWindow("Canvas")
@@ -56,10 +60,18 @@ func InitGui(
 	manualInput := container.NewAppTabs()
 	automaticInput := initAutoInput(chG2bCommand)
 	initInput := container.NewAppTabs()
+<<<<<<< HEAD
+=======
+	mappingTab:=container.NewAppTabs()
+>>>>>>> efdd8b5 (This server is adapted for the mapping scheme, should be checked before merging with main)
 	inputTabs := container.NewAppTabs(
 		container.NewTabItem("Init", initInput),
 		container.NewTabItem("Automatic", automaticInput),
 		container.NewTabItem("Manual", manualInput),
+<<<<<<< HEAD
+=======
+		container.NewTabItem("Mapping",mappingTab),
+>>>>>>> efdd8b5 (This server is adapted for the mapping scheme, should be checked before merging with main)
 	)
 
 	//map axis initialization
@@ -128,6 +140,7 @@ func InitGui(
 	infoAndMap := container.NewHSplit(content, mapCanvas2)
 
 	w2.SetContent(infoAndMap)
+<<<<<<< HEAD
 	fasitW := a.NewWindow("Correct Result Test 1")
 	// Create correct result for mapping
 	/*
@@ -184,6 +197,10 @@ func InitGui(
 		fasitW.SetContent(canvasi)
 	*/
 	return a, w, w2, fasitW, mapImage, mapImage2, mapCanvas, mapCanvas2, allRobotsHandle, manualInput, initInput
+=======
+	
+	return a, w, w2, mapImage, mapImage2, mapCanvas, mapCanvas2, allRobotsHandle, manualInput, initInput, mappingTab
+>>>>>>> efdd8b5 (This server is adapted for the mapping scheme, should be checked before merging with main)
 }
 
 func ThreadGuiUpdate(
@@ -192,12 +209,25 @@ func ThreadGuiUpdate(
 	allRobotsHandle *multiRobotHandle,
 	manualInput *container.AppTabs,
 	initInput *container.AppTabs,
+<<<<<<< HEAD
 	chG2bCommand chan<- types.Command,
 	chG2bRobotInit chan<- [4]int,
+=======
+	mappingTab *container.AppTabs,
+	chG2bCommand chan<- types.Command,
+	chG2bRobotInit chan<- [4]int,
+	chG2bToggleMapping chan<-[2]int,
+>>>>>>> efdd8b5 (This server is adapted for the mapping scheme, should be checked before merging with main)
 	chB2gRobotPendingInit <-chan int,
 	chB2gUpdate <-chan types.UpdateGui,
 ) {
 	chRobotGuiInit := make(chan [4]int, 3)
+<<<<<<< HEAD
+=======
+	//Initialize select
+	inputID:=initMappingTab(mappingTab,chG2bToggleMapping)
+	
+>>>>>>> efdd8b5 (This server is adapted for the mapping scheme, should be checked before merging with main)
 	for {
 		select {
 		case partialState := <-chB2gUpdate:
@@ -206,6 +236,10 @@ func ThreadGuiUpdate(
 			redrawRobots(allRobotsHandle, partialState.MultiRobot, partialState.Id2index)
 		case idPending := <-chB2gRobotPendingInit:
 			initInput.Append(container.NewTabItem("NRF-"+strconv.Itoa(idPending), initInitializationInputTab(chG2bRobotInit, chRobotGuiInit, idPending)))
+<<<<<<< HEAD
+=======
+			inputID.Options = append(inputID.Options, strconv.Itoa(idPending))
+>>>>>>> efdd8b5 (This server is adapted for the mapping scheme, should be checked before merging with main)
 		case init := <-chRobotGuiInit:
 			id := init[0]
 			for i := 0; i < len(initInput.Items); i++ {
@@ -218,12 +252,20 @@ func ThreadGuiUpdate(
 	}
 }
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> efdd8b5 (This server is adapted for the mapping scheme, should be checked before merging with main)
 func ThreadMapping(
 	mapImage *image.RGBA,
 	mapCanvas *canvas.Image,
 	chReceiveMap <-chan types.RectangleMsg,
 ) {
+<<<<<<< HEAD
 	robotMaps := make(map[int]types.MapRectangle)
+=======
+	//robotMaps := make(map[int]types.MapRectangle)
+>>>>>>> efdd8b5 (This server is adapted for the mapping scheme, should be checked before merging with main)
 	idToColor := make(map[int]color.RGBA) //colors may be changed to create better visual
 	idToColor[1] = color.RGBA{0x00, 0xff, 0x00, 0xff}
 	idToColor[2] = color.RGBA{0xde, 0x02, 0x61, 0xff}
@@ -234,6 +276,7 @@ func ThreadMapping(
 
 	for {
 		rect := <-chReceiveMap
+<<<<<<< HEAD
 		//fmt.Print("\nRecieved rectangle")
 		rect.Height = rect.Height / 10 //Convert from mm to cm
 		rect.Width = rect.Width / 10
@@ -290,6 +333,32 @@ func ThreadMapping(
 		}
 
 		mapCanvas.Refresh()
+=======
+		//fmt.Print("\nRecieved rectangle")jfjf
+		//rect.Height = rect.Height / 10 //Convert from mm to cm
+		//rect.Width = rect.Width / 10
+		rect.X = rect.X / 10
+		rect.Y = rect.Y / 10
+		for x := config.MapCenterX + rect.X; x <= config.MapCenterX+rect.X+config.InitialSquareLength; x++ {
+			for y := config.MapCenterY - rect.Y - config.InitialSquareLength; y <= config.MapCenterY-rect.Y; y++ { //Takes into account negative y-axis
+				if rect.Obstacle==0 && !(y == config.MapCenterY-rect.Y-config.InitialSquareLength || x == config.MapCenterX+rect.X || y == config.MapCenterY-rect.Y || x == config.MapCenterX+rect.X+config.InitialSquareLength){
+					mapImage.Set(x,y,gray)
+				} else if rect.Obstacle==1 && !(y == config.MapCenterY-rect.Y-config.InitialSquareLength || x == config.MapCenterX+rect.X || y == config.MapCenterY-rect.Y || x == config.MapCenterX+rect.X+config.InitialSquareLength){
+					mapImage.Set(x,y,red)
+				} else if rect.Obstacle==2 && !(y == config.MapCenterY-rect.Y-config.InitialSquareLength || x == config.MapCenterX+rect.X || y == config.MapCenterY-rect.Y || x == config.MapCenterX+rect.X+config.InitialSquareLength){
+					mapImage.Set(x,y,green)
+				} else if  rect.Obstacle==3 && !(y == config.MapCenterY-rect.Y-config.InitialSquareLength || x == config.MapCenterX+rect.X || y == config.MapCenterY-rect.Y || x == config.MapCenterX+rect.X+config.InitialSquareLength){
+					mapImage.Set(x,y,yellow)
+				}
+					
+					
+
+			}
+		}
+		
+
+	mapCanvas.Refresh()
+>>>>>>> efdd8b5 (This server is adapted for the mapping scheme, should be checked before merging with main)
 	}
 
 }
@@ -397,3 +466,62 @@ func initManualInputTab(chG2bCommand chan<- types.Command, id int) *fyne.Contain
 	}))
 	return manualContainer
 }
+<<<<<<< HEAD
+=======
+
+func initMappingTab(mappingTab *container.AppTabs,chG2bToggleMapping chan<-[2]int) *widget.Select{ //Change into update function
+	
+	inputId:=widget.NewSelect([]string {"Select"}, func(value string){
+		if (value!="Select"){
+			println("ID selected:",value)
+		} else{
+			println("No ID selected in mapping tab")
+		}
+		//
+
+	})
+	//inputId.PlaceHolder="Which robot ID?"
+	startButton:=widget.NewButton("Start mapping",func() {
+		println("Start mapping")
+		ID,err:=strconv.Atoi(inputId.Selected)
+		if (err!=nil){
+			println("Invalid input")
+		} else{
+			chG2bToggleMapping<-[2]int{ID,1}
+		}
+		//Send the ID and start to backend
+	})
+	stopButton:=widget.NewButton("Stop mapping",func() {
+		println("Stop mapping")
+		ID,err:=strconv.Atoi(inputId.Selected)
+		if (err!=nil){
+			println("Invalid input")
+		} else{
+			chG2bToggleMapping<-[2]int{ID,0}
+		}
+		//Send ID and stop to backend
+	})
+
+	mappingContainer:=container.NewVBox(inputId,startButton,stopButton)
+	mappingTab.Append(container.NewTabItem("Mapping",mappingContainer))
+	return inputId
+	/*
+	inputId:=widget.NewSelect([]string {}, func(value string){
+		println("ID:",strconv.Itoa(0))
+		//
+
+	})
+	inputId.PlaceHolder="Which robot ID?"
+	startButton:=widget.NewButton("Start mapping",func() {
+		println("Start mapping")
+		//Send the ID and start to backend
+	})
+	stopButton:=widget.NewButton("Stop mapping",func() {
+		println("Stop mapping")
+		//Semd ID and stop to backend
+	})
+
+	mappingContainer:=container.NewVBox(inputId,startButton,stopButton)
+	return mappingContainer*/
+}
+>>>>>>> efdd8b5 (This server is adapted for the mapping scheme, should be checked before merging with main)
