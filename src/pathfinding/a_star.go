@@ -63,7 +63,9 @@ func isDestination(cur Pair, dest Pair) bool {
 }
 
 func heuristic(row, col int, dest Pair) int {
-	return int(math.Abs(float64(row-dest.X)) + math.Abs(float64(col-dest.Y)))
+	dx := float64(row - dest.X)
+	dy := float64(col - dest.Y)
+	return 10*int(math.Sqrt(dx*dx + dy*dy))
 }
 
 func traceStatePath(endState *State) []Pair {
@@ -144,7 +146,11 @@ func A_Star(grid [config.MapSize][config.MapSize]uint8, start, end Pair) []Pair 
 					continue
 				}
 
-				stepCost := 1
+				stepCost := 10
+				if math.Abs(float64(dx))+math.Abs(float64(dy)) > 1 {
+					stepCost = 15
+				}
+
 				if cur.prevDirection.X != dx || cur.prevDirection.Y != dy {
 					stepCost += TURN_PENALTY
 				}
