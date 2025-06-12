@@ -8,7 +8,7 @@ import (
 
 const (
 	MIN_OBSTACLE_DISTANCE = 15
-	TURN_PENALTY          = 10
+	TURN_PENALTY          = 1
 )
 
 type Pair struct {
@@ -65,7 +65,7 @@ func isDestination(cur Pair, dest Pair) bool {
 func heuristic(row, col int, dest Pair) int {
 	dx := float64(row - dest.X)
 	dy := float64(col - dest.Y)
-	return 10*int(math.Sqrt(dx*dx + dy*dy))
+	return int(10 * (math.Sqrt(dx*dx + dy*dy)))
 }
 
 func traceStatePath(endState *State) []Pair {
@@ -120,8 +120,10 @@ func A_Star(grid [config.MapSize][config.MapSize]uint8, start, end Pair) []Pair 
 	startState := &State{
 		point:         start,
 		prevDirection: Pair{0, 0},
-		g:             0, h: h0, f: h0,
-		parent: nil,
+		g:             0,
+		h:             h0,
+		f:             h0,
+		parent:        nil,
 	}
 
 	bestG[start.X][start.Y][1][1] = 0
@@ -166,8 +168,10 @@ func A_Star(grid [config.MapSize][config.MapSize]uint8, start, end Pair) []Pair 
 				newPoint := &State{
 					point:         Pair{newX, newY},
 					prevDirection: Pair{dx, dy},
-					g:             newG, h: newH, f: newG + newH,
-					parent: cur,
+					g:             newG,
+					h:             newH,
+					f:             newG + newH,
+					parent:        cur,
 				}
 				heap.Push(&openList, newPoint)
 			}
