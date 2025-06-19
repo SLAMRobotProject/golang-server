@@ -18,3 +18,6 @@ const GuiFrameRate = 5            //fps
 const MapMinimumDisplaySize = 400 //px
 const WindowBreadth = 650         //px
 const WindowHeight = 400          //px
+
+//MAPPING
+const InitialSquareLength = 25	//cm, INITIAL_RECTANGLE_SIDELENGTH in robot code

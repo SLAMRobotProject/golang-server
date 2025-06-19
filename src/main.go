@@ -9,11 +9,14 @@ import (
 
 func main() {
 	//Most channels are buffered for efficiency.
-
+	print("hellpo")
 	//only backend can publish and receive
 	chPublish := make(chan [3]int, 3)
+	chPublishInit := make(chan [4]int, 3)
 	chReceive := make(chan types.AdvMsg, 3)
+	chReceiveMapFromRobot := make(chan types.RectangleMsg, 3)
 
+	//chSubRecieve2 :=make(chan )
 	//g2b = gui to backend
 	chG2bRobotInit := make(chan [4]int, 3)
 	chG2bCommand := make(chan types.Command)
@@ -21,25 +24,29 @@ func main() {
 	//b2g = backend to gui
 	chB2gUpdate := make(chan types.UpdateGui, 3) //Buffered so it won't block ThreadBackend(types.AdvMsg
 	chB2gRobotPendingInit := make(chan int, 3)   //Buffered so it won't block ThreadBackend()
+	chB2gMapRectangle := make(chan types.RectangleMsg, 3)
 
-	go backend.ThreadBackend(
+	go backend.ThreadBackend( //add chPublishInit
 		chPublish,
+		chPublishInit,
 		chReceive,
 		chB2gRobotPendingInit,
 		chB2gUpdate,
 		chG2bRobotInit,
 		chG2bCommand,
+		chReceiveMapFromRobot,
+		chB2gMapRectangle,
 	)
 
 	client := communication.InitMqtt()
-	communication.Subscribe(client, chReceive)
-	go communication.ThreadMqttPublish(client, chPublish)
+	communication.Subscribe(client, chReceive, chReceiveMapFromRobot)
+	go communication.ThreadMqttPublish(client, chPublish, chPublishInit)
 
 	//window.ShowAndRun() must be run in the main thread. So the GUI must be initialized here.
-	window, mapImage, mapCanvas, allRobotsHandle, manualInput, initInput := gui.InitGui(chG2bCommand)
+	app, serverWindow, mapWindow,fasitWindow, serverMapImage, mapImage, serverMapCanvas, mapCanvas, allRobotsHandle, manualInput, initInput := gui.InitGui(chG2bCommand)
 	go gui.ThreadGuiUpdate(
-		mapImage,
-		mapCanvas,
+		serverMapImage,
+		serverMapCanvas,
 		allRobotsHandle,
 		manualInput, initInput,
 		chG2bCommand,
@@ -48,6 +55,11 @@ func main() {
 		chB2gUpdate,
 	)
 
-	window.ShowAndRun()
+	go gui.ThreadMapping(mapImage, mapCanvas, chB2gMapRectangle)
+
+	fasitWindow.Show()
+	serverWindow.Show()
+	mapWindow.Show()
+	app.Run()
 
 }

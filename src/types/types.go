@@ -43,6 +43,17 @@ type AdvMsg struct {
 	CovarianceMatrixNumber25 float32
 }
 
+type RectangleMsg struct{
+	Id		int
+	TotalMap bool
+	X,Y,Width,Height,Obstacle int
+	Reachable bool
+}
+
+type MapRectangle struct{
+	X,Y,Width,Height int
+}
+
 const (
 	AutomaticCommand = iota
 	ManualCommand
