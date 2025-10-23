@@ -16,6 +16,7 @@ type AdvMsg struct {
 	Ir3y                     int
 	Ir4x                     int
 	Ir4y                     int
+	Valid                    uint8
 	CovarianceMatrixNumber1  float32
 	CovarianceMatrixNumber2  float32
 	CovarianceMatrixNumber3  float32

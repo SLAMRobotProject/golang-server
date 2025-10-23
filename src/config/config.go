@@ -11,7 +11,7 @@ const MapCenterX = MapSize / 2 //cm (origin is at the top left corner)
 const MapCenterY = MapSize / 2 //cm (origin is at the top left corner)
 
 // ROBOT
-const IrSensorMaxDistance = 50 //cm
+const IrSensorMaxDistance = 60 //cm
 
 // GUI
 const GuiFrameRate = 5            //fps
