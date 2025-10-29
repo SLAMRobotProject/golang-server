@@ -32,6 +32,7 @@ type advMsgUnpacking struct {
 	id                                                          int8
 	x, y, theta, ir1x, ir1y, ir2x, ir2y, ir3x, ir3y, ir4x, ir4y int16
 	valid                                                       bool
+	iRTowerAngle                                                int8
 }
 
 var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
@@ -71,6 +72,7 @@ func ThreadMqttPublish(
 
 func advMessageHandler(
 	chIncomingMsg chan<- types.AdvMsg,
+	chSensorData chan<- types.SensorData,
 ) mqtt.MessageHandler {
 	return func(client mqtt.Client, msg mqtt.Message) {
 		payload := msg.Payload()
@@ -89,7 +91,8 @@ func advMessageHandler(
 			binary.Read(reader, binary.LittleEndian, &m.ir3y)
 			binary.Read(reader, binary.LittleEndian, &m.ir4x)
 			binary.Read(reader, binary.LittleEndian, &m.ir4y)
-			binary.Read(reader, binary.LittleEndian, &m.valid) //valid is not used in the robot code
+			binary.Read(reader, binary.LittleEndian, &m.valid)
+			binary.Read(reader, binary.LittleEndian, &m.iRTowerAngle)
 
 			newMsg := types.AdvMsg{
 				Id:    int(m.id),
@@ -106,7 +109,32 @@ func advMessageHandler(
 				Ir4y:  int(m.ir4y),
 			}
 
+			newSensorData := types.SensorData{
+				Id: int32(m.id),
+				Odometry: types.Odometry{
+					X:     float64(m.x),
+					Y:     float64(m.y),
+					Theta: float64(m.theta),
+				},
+				IRSensors: types.IRSensors{
+					IrSensorData_0: types.Point2D{
+						X: int32(m.ir1x), Y: int32(m.ir1y),
+					},
+					IrSensorData_1: types.Point2D{
+						X: int32(m.ir2x), Y: int32(m.ir2y),
+					},
+					IrSensorData_2: types.Point2D{
+						X: int32(m.ir3x), Y: int32(m.ir3y),
+					},
+					IrSensorData_3: types.Point2D{
+						X: int32(m.ir4x), Y: int32(m.ir4y),
+					},
+				},
+				IRTowerAngle: int32(m.iRTowerAngle),
+			}
+
 			chIncomingMsg <- newMsg
+			chSensorData <- newSensorData
 
 			// One robots sends about 30 messages per second. Uncomment the following lines to see the messages.
 
@@ -121,9 +149,10 @@ func advMessageHandler(
 func Subscribe(
 	client mqtt.Client,
 	chIncomingMsg chan<- types.AdvMsg,
+	chSensorData chan<- types.SensorData,
 ) {
 	topic := "v2/robot/NRF_5/adv"
-	token := client.Subscribe(topic, 1, advMessageHandler(chIncomingMsg))
+	token := client.Subscribe(topic, 1, advMessageHandler(chIncomingMsg, chSensorData))
 	token.Wait()
 	fmt.Printf("Subscribed to topic: %s", topic)
 	log.GGeneralLogger.Println("Subscribed to topic: ", topic)

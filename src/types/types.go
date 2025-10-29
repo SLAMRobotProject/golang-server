@@ -32,36 +32,37 @@ type UpdateGui struct {
 // SLAM related types
 
 type Odometry struct {
-	X     int32 `json:"x"`
-	Y     int32 `json:"y"`
-	Z     int32 `json:"z"`
-	Theta int32 `json:"theta"`
+	X     float64 `json:"x"`
+	Y     float64 `json:"y"`
+	Z     float64 `json:"z"`
+	Theta float64 `json:"theta"`
 }
 
 type Imu struct {
-	AccelX int32 `json:"accel_x"`
-	AccelY int32 `json:"accel_y"`
-	AccelZ int32 `json:"accel_z"`
-	GyroX  int32 `json:"gyro_x"`
-	GyroY  int32 `json:"gyro_y"`
-	GyroZ  int32 `json:"gyro_z"`
+	AccelX float64 `json:"accel_x"`
+	AccelY float64 `json:"accel_y"`
+	AccelZ float64 `json:"accel_z"`
+	GyroX  float64 `json:"gyro_x"`
+	GyroY  float64 `json:"gyro_y"`
+	GyroZ  float64 `json:"gyro_z"`
 }
 
-type IRPoint struct {
+type Point2D struct {
 	X int32 `json:"x"`
 	Y int32 `json:"y"`
 }
 
 type IRSensors struct {
-	IrSensorData_0 []IRPoint `json:"ir_0"`
-	IrSensorData_1 []IRPoint `json:"ir_1"`
-	IrSensorData_2 []IRPoint `json:"ir_2"`
-	IrSensorData_3 []IRPoint `json:"ir_3"`
+	IrSensorData_0 Point2D `json:"ir_0"`
+	IrSensorData_1 Point2D `json:"ir_1"`
+	IrSensorData_2 Point2D `json:"ir_2"`
+	IrSensorData_3 Point2D `json:"ir_3"`
 }
 
-type SensorDataMsg struct {
-	Id        int32     `json:"id"`
-	IRSensors IRSensors `json:"ir_sensors"`
-	Odometry  Odometry  `json:"odometry"`
-	Imu       Imu       `json:"imu"`
+type SensorData struct {
+	Id           int32     `json:"id"`
+	IRSensors    IRSensors `json:"ir_sensors"`
+	Odometry     Odometry  `json:"odometry"`
+	Imu          Imu       `json:"imu"`
+	IRTowerAngle int32     `json:"ir_tower_angle"` //degrees
 }
