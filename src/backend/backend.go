@@ -145,9 +145,6 @@ func (s *fullSlamState) addIrSensorData(id, irX, irY int) {
 func (s *fullSlamState) transformIrSensorData(id, xBodyFrame, yBodyFrame int) (int, int) {
 	// IR data is given in mm and it is relative to the body, so it must be scaled, rotated and transelated to the map.
 
-	//Must flip yBodyFrame, because the axis is flipped in the robot code.
-	yBodyFrame = -yBodyFrame
-
 	//rotate
 	theta := s.multiRobot[s.id2index[id]].Theta
 	xBodyFrameRotated, yBodyFrameRotated := utilities.Rotate(float64(xBodyFrame), float64(yBodyFrame), float64(theta))

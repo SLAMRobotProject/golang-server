@@ -159,8 +159,8 @@ func initInitializationInputTab(chG2bRobotInit, chRobotGuiInit chan<- [4]int, id
 		}
 	})
 
-	defaultButton := widget.NewButton("Default [0, 0, 90]", func() {
-		x, y, theta := 0, 0, 90
+	defaultButton := widget.NewButton("Default [0, 0, 0]", func() {
+		x, y, theta := 0, 0, 0
 		chG2bRobotInit <- [4]int{id, x, y, theta}
 		chRobotGuiInit <- [4]int{id, x, y, theta}
 

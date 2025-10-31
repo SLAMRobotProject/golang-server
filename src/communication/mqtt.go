@@ -27,12 +27,27 @@ func InitMqtt() mqtt.Client {
 	return client
 }
 
+type coordinate struct {
+	x int16
+	y int16
+}
+
 // Must use the correct amount of bytes for each data type.
 type advMsgUnpacking struct {
-	id                                                          int8
-	x, y, theta, ir1x, ir1y, ir2x, ir2y, ir3x, ir3y, ir4x, ir4y int16
-	valid                                                       bool
-	iRTowerAngle                                                int8
+	id      uint8
+	x       int16
+	y       int16
+	theta   int16
+	accel_x float32
+	accel_y float32
+	// accel_z      float32
+	// gyro_x       float32
+	// gyro_y       float32
+	gyro_z       float32
+	ir           [4]coordinate
+	covMatrix    [25]float32 //not used currently, but needed to keep the byte size correct
+	valid        uint8
+	iRTowerAngle uint8
 }
 
 var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
@@ -70,6 +85,8 @@ func ThreadMqttPublish(
 	}
 }
 
+var lastsize int = 0
+
 func advMessageHandler(
 	chIncomingMsg chan<- types.AdvMsg,
 	chSensorData chan<- types.SensorData,
@@ -77,36 +94,59 @@ func advMessageHandler(
 	return func(client mqtt.Client, msg mqtt.Message) {
 		payload := msg.Payload()
 		reader := bytes.NewReader(payload)
-		if len(payload) == 24 {
+
+		if len(payload) != lastsize {
+			println("Incoming payload is: ", len(payload))
+			lastsize = len(payload)
+		}
+
+		if len(payload) == 137 { //expected size
 			m := advMsgUnpacking{}
 			binary.Read(reader, binary.LittleEndian, &m.id)
 			binary.Read(reader, binary.LittleEndian, &m.x)
 			binary.Read(reader, binary.LittleEndian, &m.y)
 			binary.Read(reader, binary.LittleEndian, &m.theta)
-			binary.Read(reader, binary.LittleEndian, &m.ir1x)
-			binary.Read(reader, binary.LittleEndian, &m.ir1y)
-			binary.Read(reader, binary.LittleEndian, &m.ir2x)
-			binary.Read(reader, binary.LittleEndian, &m.ir2y)
-			binary.Read(reader, binary.LittleEndian, &m.ir3x)
-			binary.Read(reader, binary.LittleEndian, &m.ir3y)
-			binary.Read(reader, binary.LittleEndian, &m.ir4x)
-			binary.Read(reader, binary.LittleEndian, &m.ir4y)
+			binary.Read(reader, binary.LittleEndian, &m.accel_x)
+			binary.Read(reader, binary.LittleEndian, &m.accel_y)
+			// binary.Read(reader, binary.LittleEndian, &m.accel_z)
+			// binary.Read(reader, binary.LittleEndian, &m.gyro_x)
+			// binary.Read(reader, binary.LittleEndian, &m.gyro_y)
+			binary.Read(reader, binary.LittleEndian, &m.gyro_z)
+			binary.Read(reader, binary.LittleEndian, &m.ir[0].x)
+			binary.Read(reader, binary.LittleEndian, &m.ir[0].y)
+			binary.Read(reader, binary.LittleEndian, &m.ir[1].x)
+			binary.Read(reader, binary.LittleEndian, &m.ir[1].y)
+			binary.Read(reader, binary.LittleEndian, &m.ir[2].x)
+			binary.Read(reader, binary.LittleEndian, &m.ir[2].y)
+			binary.Read(reader, binary.LittleEndian, &m.ir[3].x)
+			binary.Read(reader, binary.LittleEndian, &m.ir[3].y)
+			binary.Read(reader, binary.LittleEndian, &m.covMatrix)
 			binary.Read(reader, binary.LittleEndian, &m.valid)
 			binary.Read(reader, binary.LittleEndian, &m.iRTowerAngle)
+
+			// Debug: Print the raw payload in hex format
+			// fmt.Print("Payload hex: ")
+			// for i, b := range payload {
+			// 	fmt.Printf("%02X ", b)
+			// 	if (i+1)%16 == 0 {
+			// 		fmt.Println()
+			// 	}
+			// }
+			// fmt.Println()
 
 			newMsg := types.AdvMsg{
 				Id:    int(m.id),
 				X:     int(m.x),
 				Y:     int(m.y),
 				Theta: int(m.theta),
-				Ir1x:  int(m.ir1x),
-				Ir1y:  int(m.ir1y),
-				Ir2x:  int(m.ir2x),
-				Ir2y:  int(m.ir2y),
-				Ir3x:  int(m.ir3x),
-				Ir3y:  int(m.ir3y),
-				Ir4x:  int(m.ir4x),
-				Ir4y:  int(m.ir4y),
+				Ir1x:  int(m.ir[0].x),
+				Ir1y:  int(m.ir[0].y),
+				Ir2x:  int(m.ir[1].x),
+				Ir2y:  int(m.ir[1].y),
+				Ir3x:  int(m.ir[2].x),
+				Ir3y:  int(m.ir[2].y),
+				Ir4x:  int(m.ir[3].x),
+				Ir4y:  int(m.ir[3].y),
 			}
 
 			newSensorData := types.SensorData{
@@ -116,18 +156,23 @@ func advMessageHandler(
 					Y:     float64(m.y),
 					Theta: float64(m.theta),
 				},
+				Imu: types.Imu{
+					AccelX: float64(m.accel_x),
+					AccelY: float64(m.accel_y),
+					GyroZ:  float64(m.gyro_z),
+				},
 				IRSensors: types.IRSensors{
 					IrSensorData_0: types.Point2D{
-						X: int32(m.ir1x), Y: int32(m.ir1y),
+						X: int32(m.ir[0].x), Y: int32(m.ir[0].y),
 					},
 					IrSensorData_1: types.Point2D{
-						X: int32(m.ir2x), Y: int32(m.ir2y),
+						X: int32(m.ir[1].x), Y: int32(m.ir[1].y),
 					},
 					IrSensorData_2: types.Point2D{
-						X: int32(m.ir3x), Y: int32(m.ir3y),
+						X: int32(m.ir[2].x), Y: int32(m.ir[2].y),
 					},
 					IrSensorData_3: types.Point2D{
-						X: int32(m.ir4x), Y: int32(m.ir4y),
+						X: int32(m.ir[3].x), Y: int32(m.ir[3].y),
 					},
 				},
 				IRTowerAngle: int32(m.iRTowerAngle),
