@@ -128,7 +128,7 @@ func redrawMap(mapImage *image.RGBA, newOpen [][2]int, newObstacle [][2]int) {
 		mapImage.Set(point[0], point[1], white)
 	}
 	for _, point := range newObstacle {
-		mapImage.Set(point[0], point[1], black)
+		mapImage.Set(point[0], point[1], red)
 	}
 }
 
