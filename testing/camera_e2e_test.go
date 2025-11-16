@@ -47,7 +47,7 @@ func TestCameraPublish(t *testing.T) {
 	topic := fmt.Sprintf("v2/robot/NRF_%d/cam", robotID)
 
 	// Example values (mm): start = -50 (left), width = 100, distance = 500
-	start := int16(-400)
+	start := int16(0)
 	width := int16(400)
 	distance := int16(400)
 

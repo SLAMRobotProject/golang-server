@@ -98,39 +98,45 @@ func ThreadBackend(
 				pendingInit[msg.Id] = struct{}{}
 				chB2gRobotPendingInit <- msg.Id //Buffered channel, so it will not block.
 			} else {
-				//robot update
-				newX, newY := utilities.Rotate(float64(msg.X/10), float64(msg.Y/10), float64(state.getRobot(msg.Id).ThetaInit))
-				index := state.id2index[msg.Id]
-				state.multiRobot[index].X = int(newX) + state.getRobot(msg.Id).XInit
-				state.multiRobot[index].Y = int(newY) + state.getRobot(msg.Id).YInit
-				state.multiRobot[index].Theta = msg.Theta + state.getRobot(msg.Id).ThetaInit
+				// If the incoming message contains a valid adv payload (from the
+				// robot), update pose and run IR-based mapping. Camera-only
+				// messages (CameraPresent=true) typically do not carry X/Y/Theta
+				// and must NOT overwrite the stored robot pose.
+				if msg.Valid != 0 {
+					// robot update
+					newX, newY := utilities.Rotate(float64(msg.X/10), float64(msg.Y/10), float64(state.getRobot(msg.Id).ThetaInit))
+					index := state.id2index[msg.Id]
+					state.multiRobot[index].X = int(newX) + state.getRobot(msg.Id).XInit
+					state.multiRobot[index].Y = int(newY) + state.getRobot(msg.Id).YInit
+					state.multiRobot[index].Theta = msg.Theta + state.getRobot(msg.Id).ThetaInit
 
-				// Her kommer oppdateringer fra roboten inn. Få den til å sende inn
-				// Kovariansmatrisen fra Kalmanfilteret også slik at det kan
-				// brukes i NEES!
+					// map update, dependent upon an updated robot
+					state.addIrSensorData(msg.Id, msg.Ir1x, msg.Ir1y)
+					state.addIrSensorData(msg.Id, msg.Ir2x, msg.Ir2y)
+					state.addIrSensorData(msg.Id, msg.Ir3x, msg.Ir3y)
+					state.addIrSensorData(msg.Id, msg.Ir4x, msg.Ir4y)
 
-				//map update, dependent upon an updated robot
-				state.addIrSensorData(msg.Id, msg.Ir1x, msg.Ir1y)
-				state.addIrSensorData(msg.Id, msg.Ir2x, msg.Ir2y)
-				state.addIrSensorData(msg.Id, msg.Ir3x, msg.Ir3y)
-				state.addIrSensorData(msg.Id, msg.Ir4x, msg.Ir4y)
-				// camera segment handling (nicla vision)
+					// log position when changed
+					if msg.X != prevMsg.X || msg.Y != prevMsg.Y || msg.Theta != prevMsg.Theta {
+						covarianceMatrixString := formatCovarianceMatrix([5 * 5]float32{
+							msg.CovarianceMatrixNumber1, msg.CovarianceMatrixNumber2, msg.CovarianceMatrixNumber3, msg.CovarianceMatrixNumber4, msg.CovarianceMatrixNumber5,
+							msg.CovarianceMatrixNumber6, msg.CovarianceMatrixNumber7, msg.CovarianceMatrixNumber8, msg.CovarianceMatrixNumber9, msg.CovarianceMatrixNumber10,
+							msg.CovarianceMatrixNumber11, msg.CovarianceMatrixNumber12, msg.CovarianceMatrixNumber13, msg.CovarianceMatrixNumber14, msg.CovarianceMatrixNumber15,
+							msg.CovarianceMatrixNumber16, msg.CovarianceMatrixNumber17, msg.CovarianceMatrixNumber18, msg.CovarianceMatrixNumber19, msg.CovarianceMatrixNumber20,
+							msg.CovarianceMatrixNumber21, msg.CovarianceMatrixNumber22, msg.CovarianceMatrixNumber23, msg.CovarianceMatrixNumber24, msg.CovarianceMatrixNumber25,
+						})
+						positionLogger.Printf("%d %d %d %d %s\n", msg.Id, state.getRobot(msg.Id).X, state.getRobot(msg.Id).Y, state.getRobot(msg.Id).Theta, covarianceMatrixString)
+					}
+					prevMsg = msg
+				}
+
+				// Camera messages should always be processed so segments are
+				// mapped, but must not clobber robot pose when they don't carry
+				// a valid pose (msg.Valid == 0).
 				if msg.CameraPresent {
 					state.addCameraSegment(msg.Id, msg.CameraStartMM, msg.CameraWidthMM, msg.CameraDistanceMM)
 				}
-				//log position
-				if msg.X != prevMsg.X || msg.Y != prevMsg.Y || msg.Theta != prevMsg.Theta {
-					covarianceMatrixString := formatCovarianceMatrix([5 * 5]float32{
-						msg.CovarianceMatrixNumber1, msg.CovarianceMatrixNumber2, msg.CovarianceMatrixNumber3, msg.CovarianceMatrixNumber4, msg.CovarianceMatrixNumber5,
-						msg.CovarianceMatrixNumber6, msg.CovarianceMatrixNumber7, msg.CovarianceMatrixNumber8, msg.CovarianceMatrixNumber9, msg.CovarianceMatrixNumber10,
-						msg.CovarianceMatrixNumber11, msg.CovarianceMatrixNumber12, msg.CovarianceMatrixNumber13, msg.CovarianceMatrixNumber14, msg.CovarianceMatrixNumber15,
-						msg.CovarianceMatrixNumber16, msg.CovarianceMatrixNumber17, msg.CovarianceMatrixNumber18, msg.CovarianceMatrixNumber19, msg.CovarianceMatrixNumber20,
-						msg.CovarianceMatrixNumber21, msg.CovarianceMatrixNumber22, msg.CovarianceMatrixNumber23, msg.CovarianceMatrixNumber24, msg.CovarianceMatrixNumber25,
-					})
-					positionLogger.Printf("%d %d %d %d %s\n", msg.Id, state.getRobot(msg.Id).X, state.getRobot(msg.Id).Y, state.getRobot(msg.Id).Theta, covarianceMatrixString)
-				}
 			}
-			prevMsg = msg
 		case init := <-chG2bRobotInit:
 			id := init[0]
 			state.id2index[id] = len(state.multiRobot)
@@ -163,6 +169,12 @@ func (s *fullSlamState) setMapValue(x, y int, value uint8) {
 
 func (s *fullSlamState) getRobot(id int) types.RobotState {
 	return s.multiRobot[s.id2index[id]]
+}
+
+// Do NOT use this outside backend without
+// synchronization.
+func (s *fullSlamState) getRobotPtr(id int) *types.RobotState {
+	return &s.multiRobot[s.id2index[id]]
 }
 
 func (s *fullSlamState) addIrSensorData(id, irX, irY int) {
@@ -228,10 +240,27 @@ func (s *fullSlamState) addLineToMap(id, x1, y1 int) {
 // into map indices and marks the segment cells as obstacles. It also marks
 // cells between the robot and each obstacle cell as open (free space).
 func (s *fullSlamState) addCameraSegment(id, startMM, widthMM, distanceMM int) {
+
+	// Adjust distance for camera mounting offset
 	adjDist := distanceMM + config.CameraMountOffsetMM
 
+	// mm to cm for map coordinates
 	x1Map, y1Map := int(startMM/10), int(adjDist/10)
 	x2Map, y2Map := int((startMM+widthMM)/10), int(adjDist/10)
+
+	// Get robot pose
+	robotPosePtr := s.getRobotPtr(id)
+	x_pos, y_pos, theta := robotPosePtr.X, robotPosePtr.Y, robotPosePtr.Theta
+
+	// Rotate segment endpoints to map frame. Theta 90 equals no rotation
+	x1Rotated, y1Rotated := utilities.Rotate(float64(x1Map), float64(y1Map), float64(theta-90))
+	x2Rotated, y2Rotated := utilities.Rotate(float64(x2Map), float64(y2Map), float64(theta-90))
+
+	// Translate to map coordinates
+	x1Map = int(math.Round(x1Rotated)) + x_pos
+	y1Map = int(math.Round(y1Rotated)) + y_pos
+	x2Map = int(math.Round(x2Rotated)) + x_pos
+	y2Map = int(math.Round(y2Rotated)) + y_pos
 
 	// get indices and clamp to map
 	x1Index, y1Index := calculateMapIndex(x1Map, y1Map)
@@ -244,8 +273,8 @@ func (s *fullSlamState) addCameraSegment(id, startMM, widthMM, distanceMM int) {
 	// get the segment cells
 	segmentPoints := utilities.BresenhamAlgorithm(x1Index, y1Index, x2Index, y2Index)
 
-	// robot index
-	robot := s.getRobot(id)
+	// robot index (use pointer to the live robot state)
+	robot := s.getRobotPtr(id)
 	rxIndex, ryIndex := calculateMapIndex(robot.X, robot.Y)
 	rxIndex = min(max(rxIndex, 0), config.MapSize-1)
 	ryIndex = min(max(ryIndex, 0), config.MapSize-1)
@@ -255,7 +284,6 @@ func (s *fullSlamState) addCameraSegment(id, startMM, widthMM, distanceMM int) {
 		sy := p[1]
 		// mark segment cell as obstacle
 		s.setMapValue(sx, sy, mapObstacle)
-		// previously logged per-obstacle; keep mapping but avoid noisy logs
 
 		// mark free space between robot and obstacle (exclude obstacle cell itself)
 		lineToObs := utilities.BresenhamAlgorithm(rxIndex, ryIndex, sx, sy)
@@ -267,6 +295,7 @@ func (s *fullSlamState) addCameraSegment(id, startMM, widthMM, distanceMM int) {
 			}
 		}
 	}
+	log.GGeneralLogger.Printf("Camera mapping: robot=(id=%d x=%d y=%d theta=%d) endpoints=(x1=%d x2=%d y2=%d y1=%d)", id, robotPosePtr.X, robotPosePtr.Y, robotPosePtr.Theta, x1Map, x2Map, y2Map, y1Map)
 }
 
 func calculateMapIndex(x, y int) (int, int) {
