@@ -6,10 +6,14 @@
 #
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import LaserScan, Imu
+from sensor_msgs.msg import LaserScan, Imu, PointCloud2, PointField
+from std_msgs.msg import Header
 from nav_msgs.msg import Odometry
-from geometry_msgs.msg import Quaternion
-import tf_transformations # pip install tf-transformations
+from geometry_msgs.msg import Quaternion, TransformStamped
+from tf2_ros import TransformBroadcaster
+from datetime import datetime
+import sensor_msgs_py.point_cloud2 as pc2
+import tf_transformations
 import json
 import asyncio
 import websockets
@@ -20,13 +24,15 @@ class GoBridgeNode(Node):
         super().__init__('go_bridge_node')
         
         # --- Publishers ---
-        # These topic names MUST match your Cartographer config
-        self.scan_publisher = self.create_publisher(LaserScan, 'scan', 10)
+        #self.scan_publisher = self.create_publisher(LaserScan, 'scan', 10)
+        self.pc_publisher = self.create_publisher(PointCloud2, 'points2', 10)
         self.odom_publisher = self.create_publisher(Odometry, 'odom', 10)
         self.imu_publisher = self.create_publisher(Imu, 'imu', 10)
+        
+        # --- TF Broadcaster ---
+        self.tf_broadcaster = TransformBroadcaster(self)
 
         # --- Frame IDs ---
-        # These MUST match your TF tree (URDF, static transforms, etc.)
         self.odom_frame_id = 'odom'
         self.base_frame_id = 'base_link'
         self.laser_frame_id = 'laser_frame'
@@ -34,46 +40,81 @@ class GoBridgeNode(Node):
 
         self.get_logger().info('Go Bridge Node has started.')
         self.get_logger().info('Listening for Odom, IMU, and Scan data...')
-
-    def publish_scan(self, data):
-        """ Publishes a sensor_msgs/LaserScan message """
+            
+    def publish_cloud(self, data):
         try:
-            msg = LaserScan()
-            msg.header.stamp = self.get_clock().now().to_msg()
-            msg.header.frame_id = self.laser_frame_id
+            now = self.get_clock().now().to_msg()
             
-            # Populate the message from the JSON data
-            msg.angle_min = data['angle_min']
-            msg.angle_max = data['angle_max']
-            msg.angle_increment = data['angle_increment']
-            msg.range_min = data['range_min']
-            msg.range_max = data['range_max']
-            # Ensure ranges are floats
-            msg.ranges = [float(r) for r in data['ranges']]
+            scan_points = data['points']
             
-            self.scan_publisher.publish(msg)
-            # self.get_logger().info('Published LaserScan.', throttle_duration_sec=5.0)
-        except KeyError as e:
-            self.get_logger().error(f'Malformed "scan" JSON: missing key {e}')
+            num_points = len(scan_points)
+            if num_points == 0:
+                return
+
+            points_for_cloud = []
+            for i in range(num_points):
+                point_data = scan_points[i]
+                point_xy = point_data['point']
+                
+                x = float(point_xy.get('x')) / 1000.0
+                y = float(point_xy.get('y')) / 1000.0
+                z = 0.0
+                
+                if x == 0.0 and y == 0.0:
+                    continue
+                
+                time_stamp = float(point_data['time_stamp'])
+                
+                points_for_cloud.append([x, y, z, time_stamp])
+            
+            fields = [
+                PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
+                PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
+                PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
+                PointField(name='time_stamp', offset=12, datatype=PointField.FLOAT32, count=1)
+            ]
+            header = Header(stamp=now, frame_id=self.laser_frame_id)
+            cloud_msg = pc2.create_cloud(header, fields, points_for_cloud)
+            self.pc_publisher.publish(cloud_msg)
+            
         except Exception as e:
-            self.get_logger().error(f'Error in publish_scan: {e}')
+            self.get_logger().error(f'Error in publish_cloud: {e}')
 
     def publish_odom(self, data):
-        """ Publishes a nav_msgs/Odometry message """
         try:
+            now = self.get_clock().now().to_msg()
+            
+            t = TransformStamped()
+            t.header.stamp = now
+            t.header.frame_id = self.odom_frame_id
+            t.child_frame_id = self.base_frame_id
+
+            t.transform.translation.x = float(data['x'] / 1000)
+            t.transform.translation.y = float(data['y'] / 1000)
+            t.transform.translation.z = 0.0
+            
+            theta_radians = data['theta'] * math.pi / 180.0
+            q = tf_transformations.quaternion_from_euler(0, 0, theta_radians)
+            t.transform.rotation.x = q[0]
+            t.transform.rotation.y = q[1]
+            t.transform.rotation.z = q[2]
+            t.transform.rotation.w = q[3]
+
+            self.tf_broadcaster.sendTransform(t)
+            
             msg = Odometry()
-            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.header.stamp = now
             msg.header.frame_id = self.odom_frame_id
             msg.child_frame_id = self.base_frame_id
 
             # --- Pose ---
-            msg.pose.pose.position.x = data['x']
-            msg.pose.pose.position.y = data['y']
-            msg.pose.pose.position.z = 0.0 # Assuming 2D
+            msg.pose.pose.position.x = t.transform.translation.x
+            msg.pose.pose.position.y = t.transform.translation.y
+            msg.pose.pose.orientation = t.transform.rotation
             
             # Convert yaw (theta) to quaternion
-            q = tf_transformations.quaternion_from_euler(0, 0, data['theta'])
-            msg.pose.pose.orientation = Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
+            #q = tf_transformations.quaternion_from_euler(0, 0, data['theta'])
+            #msg.pose.pose.orientation = Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
 
             # --- Twist (Velocity) ---
             # Uncomment if your Go code sends velocity
@@ -88,20 +129,23 @@ class GoBridgeNode(Node):
             self.get_logger().error(f'Error in publish_odom: {e}')
 
     def publish_imu(self, data):
-        """ Publishes a sensor_msgs/Imu message """
         try:
             msg = Imu()
-            msg.header.stamp = self.get_clock().now().to_msg()
+            
+            now = self.get_clock().now().to_msg()
+            
+            msg.header.stamp = now
             msg.header.frame_id = self.imu_frame_id
             
             # Cartographer in 2D mainly uses angular_velocity.z and linear_acceleration
-            msg.angular_velocity.x = data.get('gyro_x', 0.0)
-            msg.angular_velocity.y = data.get('gyro_y', 0.0)
-            msg.angular_velocity.z = data.get('gyro_z', 0.0)
-            
-            msg.linear_acceleration.x = data.get('accel_x', 0.0)
-            msg.linear_acceleration.y = data.get('accel_y', 0.0)
-            msg.linear_acceleration.z = data.get('accel_z', 0.0)
+            msg.angular_velocity.x = float(data.get('gyro_x'))
+            msg.angular_velocity.y = float(data.get('gyro_y'))
+            msg.angular_velocity.z = float(data.get('gyro_z'))
+
+            # Linear acceleration
+            msg.linear_acceleration.x = float(data.get('accel_x'))
+            msg.linear_acceleration.y = float(data.get('accel_y'))
+            msg.linear_acceleration.z = 9.81
             
             # You must provide non-zero covariance or Cartographer may complain
             # Setting a small variance for measured axes
@@ -123,9 +167,7 @@ class GoBridgeNode(Node):
         except Exception as e:
             self.get_logger().error(f'Error in publish_imu: {e}')
 
-
-async def websocket_handler(websocket, path, ros_node):
-    """ Handles incoming WebSocket messages """
+async def websocket_handler(websocket, ros_node):
     ros_node.get_logger().info('WebSocket client connected.')
     async for message in websocket:
         try:
@@ -143,8 +185,8 @@ async def websocket_handler(websocket, path, ros_node):
                 ros_node.publish_odom(msg_data)
             elif msg_type == 'imu':
                 ros_node.publish_imu(msg_data)
-            elif msg_type == 'scan':
-                ros_node.publish_scan(msg_data)
+            elif msg_type == 'points':
+                ros_node.publish_cloud(msg_data)
             else:
                 ros_node.get_logger().warn(f'Received unknown message type: {msg_type}')
 
@@ -153,28 +195,28 @@ async def websocket_handler(websocket, path, ros_node):
         except Exception as e:
             ros_node.get_logger().error(f'Error processing message: {e}')
     ros_node.get_logger().info('WebSocket client disconnected.')
-
-
+    
 async def main_async(args=None):
-    """ Main function to run ROS node and WebSocket server """
     rclpy.init(args=args)
     go_bridge_node = GoBridgeNode()
     
+    # Use a lambda to pass the ros_node into your real handler
+    handler = lambda ws: websocket_handler(ws, go_bridge_node)
+    
     # Run the WebSocket server
     # Binds to 0.0.0.0 to be accessible from outside the WSL container
-    # (e.g., from host Windows)
-    start_server = websockets.serve(
-        lambda ws, path: websocket_handler(ws, path, go_bridge_node), "0.0.0.0", 8765
-    )
+    start_server = websockets.serve(handler, "localhost", 8765)
     
     # Run the WebSocket server and the ROS node concurrently
     try:
-        # Run the websocket server
         await start_server
-        # Spin the ROS node
+        go_bridge_node.get_logger().info('WebSocket server started on ws://localhost:8765')
+        
+        # Spin the ROS node. This loop is now reachable.
         while rclpy.ok():
             rclpy.spin_once(go_bridge_node, timeout_sec=0.01)
-            await asyncio.sleep(0.001) # Yield control
+            await asyncio.sleep(0.001) # Yield control to asyncio
+    
     except KeyboardInterrupt:
         pass
     finally:
