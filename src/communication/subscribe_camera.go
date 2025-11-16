@@ -16,8 +16,8 @@ import (
 // contain three little-endian int16 values: x_start_mm, x_width_mm, distance_mm.
 func SubscribeCamera(client mqtt.Client, chIncomingMsg chan<- types.AdvMsg) {
 	if !config.UseNiclaVision {
-		fmt.Println("nicla vision disabled via config.UseNiclaVision; camera subscription skipped")
-		log.GGeneralLogger.Println("nicla vision disabled via config.UseNiclaVision; camera subscription skipped")
+		fmt.Println("\nNicla vision disabled via config.UseNiclaVision; camera subscription skipped")
+		log.GGeneralLogger.Println("Nicla vision disabled via config.UseNiclaVision; camera subscription skipped")
 		return
 	}
 
