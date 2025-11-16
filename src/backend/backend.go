@@ -171,12 +171,6 @@ func (s *fullSlamState) getRobot(id int) types.RobotState {
 	return s.multiRobot[s.id2index[id]]
 }
 
-// Do NOT use this outside backend without
-// synchronization.
-func (s *fullSlamState) getRobotPtr(id int) *types.RobotState {
-	return &s.multiRobot[s.id2index[id]]
-}
-
 func (s *fullSlamState) addIrSensorData(id, irX, irY int) {
 	xMap, yMap := s.transformIrSensorData(id, irX, irY)
 	s.addLineToMap(id, xMap, yMap)
@@ -249,8 +243,8 @@ func (s *fullSlamState) addCameraSegment(id, startMM, widthMM, distanceMM int) {
 	x2Map, y2Map := int((startMM+widthMM)/10), int(adjDist/10)
 
 	// Get robot pose
-	robotPosePtr := s.getRobotPtr(id)
-	x_pos, y_pos, theta := robotPosePtr.X, robotPosePtr.Y, robotPosePtr.Theta
+	robot := s.getRobot(id)
+	x_pos, y_pos, theta := robot.X, robot.Y, robot.Theta
 
 	// Rotate segment endpoints to map frame. Theta 90 equals no rotation
 	x1Rotated, y1Rotated := utilities.Rotate(float64(x1Map), float64(y1Map), float64(theta-90))
@@ -273,8 +267,7 @@ func (s *fullSlamState) addCameraSegment(id, startMM, widthMM, distanceMM int) {
 	// get the segment cells
 	segmentPoints := utilities.BresenhamAlgorithm(x1Index, y1Index, x2Index, y2Index)
 
-	// robot index (use pointer to the live robot state)
-	robot := s.getRobotPtr(id)
+	// robot index
 	rxIndex, ryIndex := calculateMapIndex(robot.X, robot.Y)
 	rxIndex = min(max(rxIndex, 0), config.MapSize-1)
 	ryIndex = min(max(ryIndex, 0), config.MapSize-1)
@@ -295,7 +288,7 @@ func (s *fullSlamState) addCameraSegment(id, startMM, widthMM, distanceMM int) {
 			}
 		}
 	}
-	log.GGeneralLogger.Printf("Camera mapping: robot=(id=%d x=%d y=%d theta=%d) endpoints=(x1=%d x2=%d y2=%d y1=%d)", id, robotPosePtr.X, robotPosePtr.Y, robotPosePtr.Theta, x1Map, x2Map, y2Map, y1Map)
+	log.GGeneralLogger.Printf("Camera mapping: robot=(id=%d x=%d y=%d theta=%d) endpoints=(x1=%d x2=%d y2=%d y1=%d)", id, robot.X, robot.Y, robot.Theta, x1Map, x2Map, y2Map, y1Map)
 }
 
 func calculateMapIndex(x, y int) (int, int) {
