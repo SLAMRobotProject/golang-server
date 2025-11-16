@@ -33,6 +33,8 @@ func main() {
 
 	client := communication.InitMqtt()
 	communication.Subscribe(client, chReceive)
+	// Subscribe to nicla vision camera topic if enabled by build tag.
+	communication.SubscribeCamera(client, chReceive)
 	go communication.ThreadMqttPublish(client, chPublish)
 
 	//window.ShowAndRun() must be run in the main thread. So the GUI must be initialized here.

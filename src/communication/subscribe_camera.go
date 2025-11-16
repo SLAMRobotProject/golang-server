@@ -1,0 +1,74 @@
+package communication
+
+import (
+	"bytes"
+	"encoding/binary"
+	"fmt"
+	"golang-server/config"
+	"golang-server/log"
+	"golang-server/types"
+
+	mqtt "github.com/eclipse/paho.mqtt.golang"
+)
+
+// SubscribeCamera subscribes to camera topic and dispatches messages to chIncomingMsg
+// only if config.UseNiclaVision is enabled. The camera payload is expected to
+// contain three little-endian int16 values: x_start_mm, x_width_mm, distance_mm.
+func SubscribeCamera(client mqtt.Client, chIncomingMsg chan<- types.AdvMsg) {
+	if !config.UseNiclaVision {
+		fmt.Println("nicla vision disabled via config.UseNiclaVision; camera subscription skipped")
+		log.GGeneralLogger.Println("nicla vision disabled via config.UseNiclaVision; camera subscription skipped")
+		return
+	}
+
+	handler := func(client mqtt.Client, msg mqtt.Message) {
+		payload := msg.Payload()
+		topic := string(msg.Topic())
+		log.GGeneralLogger.Printf("Camera message received on topic %s, %d bytes", topic, len(payload))
+		reader := bytes.NewReader(payload)
+
+		if len(payload) < 6 {
+			log.GGeneralLogger.Printf("Camera payload too short: %d bytes", len(payload))
+			return
+		}
+		var start int16
+		var width int16
+		var distance int16
+		if err := binary.Read(reader, binary.LittleEndian, &start); err != nil {
+			log.GGeneralLogger.Printf("Failed to read camera payload start: %v", err)
+			return
+		}
+		if err := binary.Read(reader, binary.LittleEndian, &width); err != nil {
+			log.GGeneralLogger.Printf("Failed to read camera payload width: %v", err)
+			return
+		}
+		if err := binary.Read(reader, binary.LittleEndian, &distance); err != nil {
+			log.GGeneralLogger.Printf("Failed to read camera payload distance: %v", err)
+			return
+		}
+
+		id := -1
+		fmt.Sscanf(topic, "v2/robot/NRF_%d/cam", &id)
+
+		// Log a single line with the parsed camera values
+		log.GGeneralLogger.Printf("Camera message received: start=%d width=%d distance=%d", int(start), int(width), int(distance))
+
+		newMsg := types.AdvMsg{
+			CameraStartMM:    int(start),
+			CameraWidthMM:    int(width),
+			CameraDistanceMM: int(distance),
+			CameraPresent:    true,
+		}
+		if id != -1 {
+			newMsg.Id = id
+		}
+
+		chIncomingMsg <- newMsg
+	}
+
+	topic := "v2/robot/+/cam"
+	token := client.Subscribe(topic, 1, handler)
+	token.Wait()
+	fmt.Printf("\nSubscribed to camera topic: %s\n", topic)
+	log.GGeneralLogger.Println("Subscribed to camera topic: ", topic)
+}

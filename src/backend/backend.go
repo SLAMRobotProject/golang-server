@@ -93,7 +93,7 @@ func ThreadBackend(
 			}
 		case msg := <-chReceive:
 			if _, exist := pendingInit[msg.Id]; exist {
-				//skip
+				// skip
 			} else if _, exist := state.id2index[msg.Id]; !exist {
 				pendingInit[msg.Id] = struct{}{}
 				chB2gRobotPendingInit <- msg.Id //Buffered channel, so it will not block.
@@ -114,6 +114,10 @@ func ThreadBackend(
 				state.addIrSensorData(msg.Id, msg.Ir2x, msg.Ir2y)
 				state.addIrSensorData(msg.Id, msg.Ir3x, msg.Ir3y)
 				state.addIrSensorData(msg.Id, msg.Ir4x, msg.Ir4y)
+				// camera segment handling (nicla vision)
+				if msg.CameraPresent {
+					state.addCameraSegment(msg.Id, msg.CameraStartMM, msg.CameraWidthMM, msg.CameraDistanceMM)
+				}
 				//log position
 				if msg.X != prevMsg.X || msg.Y != prevMsg.Y || msg.Theta != prevMsg.Theta {
 					covarianceMatrixString := formatCovarianceMatrix([5 * 5]float32{
@@ -217,6 +221,51 @@ func (s *fullSlamState) addLineToMap(id, x1, y1 int) {
 	}
 	if obstruction {
 		s.setMapValue(x1Index, y1Index, mapObstacle)
+	}
+}
+
+// addCameraSegment converts a camera line segment (given in mm in robot body frame)
+// into map indices and marks the segment cells as obstacles. It also marks
+// cells between the robot and each obstacle cell as open (free space).
+func (s *fullSlamState) addCameraSegment(id, startMM, widthMM, distanceMM int) {
+	adjDist := distanceMM + config.CameraMountOffsetMM
+
+	x1Map, y1Map := int(startMM/10), int(adjDist/10)
+	x2Map, y2Map := int((startMM+widthMM)/10), int(adjDist/10)
+
+	// get indices and clamp to map
+	x1Index, y1Index := calculateMapIndex(x1Map, y1Map)
+	x2Index, y2Index := calculateMapIndex(x2Map, y2Map)
+	x1Index = min(max(x1Index, 0), config.MapSize-1)
+	y1Index = min(max(y1Index, 0), config.MapSize-1)
+	x2Index = min(max(x2Index, 0), config.MapSize-1)
+	y2Index = min(max(y2Index, 0), config.MapSize-1)
+
+	// get the segment cells
+	segmentPoints := utilities.BresenhamAlgorithm(x1Index, y1Index, x2Index, y2Index)
+
+	// robot index
+	robot := s.getRobot(id)
+	rxIndex, ryIndex := calculateMapIndex(robot.X, robot.Y)
+	rxIndex = min(max(rxIndex, 0), config.MapSize-1)
+	ryIndex = min(max(ryIndex, 0), config.MapSize-1)
+
+	for _, p := range segmentPoints {
+		sx := p[0]
+		sy := p[1]
+		// mark segment cell as obstacle
+		s.setMapValue(sx, sy, mapObstacle)
+		// previously logged per-obstacle; keep mapping but avoid noisy logs
+
+		// mark free space between robot and obstacle (exclude obstacle cell itself)
+		lineToObs := utilities.BresenhamAlgorithm(rxIndex, ryIndex, sx, sy)
+		if len(lineToObs) > 1 {
+			for i := 0; i < len(lineToObs)-1; i++ {
+				lx := lineToObs[i][0]
+				ly := lineToObs[i][1]
+				s.setMapValue(lx, ly, mapOpen)
+			}
+		}
 	}
 }
 
