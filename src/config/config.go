@@ -25,4 +25,4 @@ const WindowBreadth = 650         //px
 const WindowHeight = 400          //px
 
 // Enable nicla vision camera handling in the server
-const UseNiclaVision = false
+const UseNiclaVision = true
