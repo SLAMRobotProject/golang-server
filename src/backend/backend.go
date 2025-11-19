@@ -288,7 +288,6 @@ func (s *fullSlamState) addCameraSegment(id, startMM, widthMM, distanceMM int) {
 			}
 		}
 	}
-	log.GGeneralLogger.Printf("Camera mapping: robot=(id=%d x=%d y=%d theta=%d) endpoints=(x1=%d x2=%d y2=%d y1=%d)", id, robot.X, robot.Y, robot.Theta, x1Map, x2Map, y2Map, y1Map)
 }
 
 func calculateMapIndex(x, y int) (int, int) {
