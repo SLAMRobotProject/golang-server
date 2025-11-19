@@ -44,14 +44,18 @@ func TestCameraPublish(t *testing.T) {
 	}
 	defer client.Disconnect(250)
 
-	topic := fmt.Sprintf("v2/robot/NRF_%d/cam", robotID)
+	// Topic can be fixed; the payload now contains the robot identifier as
+	// the first byte (mqttsn_camera_msg.identifier).
+	topic := "v2/robot/NRF_5/cam"
 
-	// Example values (mm): start = -50 (left), width = 100, distance = 500
+	// Example values (mm): start = 0 (center), width = 400, distance = 400
 	start := int16(0)
 	width := int16(400)
 	distance := int16(400)
 
 	buf := new(bytes.Buffer)
+	// Write identifier (uint8) first, then three little-endian int16 values
+	binary.Write(buf, binary.LittleEndian, uint8(robotID))
 	binary.Write(buf, binary.LittleEndian, start)
 	binary.Write(buf, binary.LittleEndian, width)
 	binary.Write(buf, binary.LittleEndian, distance)

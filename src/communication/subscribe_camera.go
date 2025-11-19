@@ -27,13 +27,22 @@ func SubscribeCamera(client mqtt.Client, chIncomingMsg chan<- types.AdvMsg) {
 		log.GGeneralLogger.Printf("Camera message received on topic %s, %d bytes", topic, len(payload))
 		reader := bytes.NewReader(payload)
 
-		if len(payload) < 6 {
-			log.GGeneralLogger.Printf("Camera payload too short: %d bytes", len(payload))
+		// Expect 1 byte identifier + 3x int16 = 7 bytes total
+		if len(payload) != 7 {
+			log.GGeneralLogger.Printf("Camera payload length not 7 bytes: %d bytes", len(payload))
 			return
 		}
+
+		// Read payload
+		var identifier uint8
 		var start int16
 		var width int16
 		var distance int16
+
+		if err := binary.Read(reader, binary.LittleEndian, &identifier); err != nil {
+			log.GGeneralLogger.Printf("Failed to read camera payload identifier: %v", err)
+			return
+		}
 		if err := binary.Read(reader, binary.LittleEndian, &start); err != nil {
 			log.GGeneralLogger.Printf("Failed to read camera payload start: %v", err)
 			return
@@ -47,20 +56,20 @@ func SubscribeCamera(client mqtt.Client, chIncomingMsg chan<- types.AdvMsg) {
 			return
 		}
 
-		id := -1
-		fmt.Sscanf(topic, "v2/robot/NRF_%d/cam", &id)
+		// Log a single line with the parsed camera values including id
+		log.GGeneralLogger.Printf("Camera message received: id=%d start=%d width=%d distance=%d", int(identifier), int(start), int(width), int(distance))
 
-		// Log a single line with the parsed camera values
-		log.GGeneralLogger.Printf("Camera message received: start=%d width=%d distance=%d", int(start), int(width), int(distance))
+		// Ignore empty / invalid camera measurements (no detection)
+		if start == 0 && width == 0 && distance == 0 {
+			return
+		}
 
 		newMsg := types.AdvMsg{
+			Id:               int(identifier),
 			CameraStartMM:    int(start),
 			CameraWidthMM:    int(width),
 			CameraDistanceMM: int(distance),
 			CameraPresent:    true,
-		}
-		if id != -1 {
-			newMsg.Id = id
 		}
 
 		chIncomingMsg <- newMsg
