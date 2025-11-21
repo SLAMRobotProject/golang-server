@@ -27,19 +27,26 @@ func InitMqtt() mqtt.Client {
 	return client
 }
 
-type Coordinate struct {
-	X int16
-	Y int16
+type coordinate struct {
+	x int16
+	y int16
 }
 
 type advMsgUnpacking struct {
-	Id               int8
-	X                int16
-	Y                int16
-	Theta            int16
-	IR               [4]Coordinate // Replaced ir1x, ir1y, etc. with an array
-	CovarianceMatrix [25]float32   // Replaced individual fields with an array
-	Valid            uint8         // Corrected from bool to uint8 to match C's bitmask
+	id      uint8
+	x       int16
+	y       int16
+	theta   int16
+	accel_x float32
+	accel_y float32
+	// accel_z      float32
+	// gyro_x       float32
+	// gyro_y       float32
+	gyro_z       float32
+	ir           [4]coordinate
+	covMatrix    [25]float32 //not used currently, but needed to keep the byte size correct
+	valid        uint8
+	iRTowerAngle uint8
 }
 
 var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
@@ -77,6 +84,8 @@ func ThreadMqttPublish(
 	}
 }
 
+var lastsize int = 0
+
 func advMessageHandler(
 	chIncomingMsg chan<- types.AdvMsg,
 ) mqtt.MessageHandler {
@@ -84,54 +93,58 @@ func advMessageHandler(
 		payload := msg.Payload()
 		reader := bytes.NewReader(payload)
 
-		if len(payload) == 124 {
-			m := advMsgUnpacking{}
+		if len(payload) != lastsize {
+			println("Incoming payload is: ", len(payload))
+			lastsize = len(payload)
+		}
 
-			err := binary.Read(reader, binary.LittleEndian, &m)
-			if err != nil {
-				log.GGeneralLogger.Printf("Failed to read binary payload: %v", err)
-				return
-			}
+		if len(payload) == 137 { //expected size, make sure this the same as the robot is sending
+			m := advMsgUnpacking{}
+			binary.Read(reader, binary.LittleEndian, &m.id)
+			binary.Read(reader, binary.LittleEndian, &m.x)
+			binary.Read(reader, binary.LittleEndian, &m.y)
+			binary.Read(reader, binary.LittleEndian, &m.theta)
+			binary.Read(reader, binary.LittleEndian, &m.accel_x)
+			binary.Read(reader, binary.LittleEndian, &m.accel_y)
+			// binary.Read(reader, binary.LittleEndian, &m.accel_z)
+			// binary.Read(reader, binary.LittleEndian, &m.gyro_x)
+			// binary.Read(reader, binary.LittleEndian, &m.gyro_y)
+			binary.Read(reader, binary.LittleEndian, &m.gyro_z)
+			binary.Read(reader, binary.LittleEndian, &m.ir[0].x)
+			binary.Read(reader, binary.LittleEndian, &m.ir[0].y)
+			binary.Read(reader, binary.LittleEndian, &m.ir[1].x)
+			binary.Read(reader, binary.LittleEndian, &m.ir[1].y)
+			binary.Read(reader, binary.LittleEndian, &m.ir[2].x)
+			binary.Read(reader, binary.LittleEndian, &m.ir[2].y)
+			binary.Read(reader, binary.LittleEndian, &m.ir[3].x)
+			binary.Read(reader, binary.LittleEndian, &m.ir[3].y)
+			binary.Read(reader, binary.LittleEndian, &m.covMatrix)
+			binary.Read(reader, binary.LittleEndian, &m.valid)
+			binary.Read(reader, binary.LittleEndian, &m.iRTowerAngle)
+
+			// Debug: Print the raw payload in hex format
+			// fmt.Print("Payload hex: ")
+			// for i, b := range payload {
+			// 	fmt.Printf("%02X ", b)
+			// 	if (i+1)%16 == 0 {
+			// 		fmt.Println()
+			// 	}
+			// }
+			// fmt.Println()
 
 			newMsg := types.AdvMsg{
-				Id:                       int(m.Id),
-				X:                        int(m.X),
-				Y:                        int(m.Y),
-				Theta:                    int(m.Theta),
-				Ir1x:                     int(m.IR[0].X),
-				Ir1y:                     int(m.IR[0].Y),
-				Ir2x:                     int(m.IR[1].X),
-				Ir2y:                     int(m.IR[1].Y),
-				Ir3x:                     int(m.IR[2].X),
-				Ir3y:                     int(m.IR[2].Y),
-				Ir4x:                     int(m.IR[3].X),
-				Ir4y:                     int(m.IR[3].Y),
-				Valid:                    m.Valid,
-				CovarianceMatrixNumber1:  m.CovarianceMatrix[0],
-				CovarianceMatrixNumber2:  m.CovarianceMatrix[1],
-				CovarianceMatrixNumber3:  m.CovarianceMatrix[2],
-				CovarianceMatrixNumber4:  m.CovarianceMatrix[3],
-				CovarianceMatrixNumber5:  m.CovarianceMatrix[4],
-				CovarianceMatrixNumber6:  m.CovarianceMatrix[5],
-				CovarianceMatrixNumber7:  m.CovarianceMatrix[6],
-				CovarianceMatrixNumber8:  m.CovarianceMatrix[7],
-				CovarianceMatrixNumber9:  m.CovarianceMatrix[8],
-				CovarianceMatrixNumber10: m.CovarianceMatrix[9],
-				CovarianceMatrixNumber11: m.CovarianceMatrix[10],
-				CovarianceMatrixNumber12: m.CovarianceMatrix[11],
-				CovarianceMatrixNumber13: m.CovarianceMatrix[12],
-				CovarianceMatrixNumber14: m.CovarianceMatrix[13],
-				CovarianceMatrixNumber15: m.CovarianceMatrix[14],
-				CovarianceMatrixNumber16: m.CovarianceMatrix[15],
-				CovarianceMatrixNumber17: m.CovarianceMatrix[16],
-				CovarianceMatrixNumber18: m.CovarianceMatrix[17],
-				CovarianceMatrixNumber19: m.CovarianceMatrix[18],
-				CovarianceMatrixNumber20: m.CovarianceMatrix[19],
-				CovarianceMatrixNumber21: m.CovarianceMatrix[20],
-				CovarianceMatrixNumber22: m.CovarianceMatrix[21],
-				CovarianceMatrixNumber23: m.CovarianceMatrix[22],
-				CovarianceMatrixNumber24: m.CovarianceMatrix[23],
-				CovarianceMatrixNumber25: m.CovarianceMatrix[24],
+				Id:    int(m.id),
+				X:     int(m.x),
+				Y:     int(m.y),
+				Theta: int(m.theta),
+				Ir1x:  int(m.ir[0].x),
+				Ir1y:  int(m.ir[0].y),
+				Ir2x:  int(m.ir[1].x),
+				Ir2y:  int(m.ir[1].y),
+				Ir3x:  int(m.ir[2].x),
+				Ir3y:  int(m.ir[2].y),
+				Ir4x:  int(m.ir[3].x),
+				Ir4y:  int(m.ir[3].y),
 			}
 
 			chIncomingMsg <- newMsg
