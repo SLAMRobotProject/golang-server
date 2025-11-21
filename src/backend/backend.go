@@ -47,6 +47,7 @@ func initFullSlamState() *fullSlamState {
 func ThreadBackend(
 	chPublish chan<- [3]int,
 	chReceive <-chan types.AdvMsg,
+	chCamera <-chan types.CameraMsg,
 	chB2gRobotPendingInit chan<- int,
 	chB2gUpdate chan<- types.UpdateGui,
 	chG2bRobotInit <-chan [4]int,
@@ -127,6 +128,12 @@ func ThreadBackend(
 				}
 			}
 			prevMsg = msg
+		case cam := <-chCamera:
+			if _, exist := state.id2index[cam.Id]; !exist {
+				log.GGeneralLogger.Printf("Camera message for unknown robot id=%d ignored (no init)", cam.Id)
+				continue
+			}
+			state.addCameraSegment(cam.Id, cam.StartMM, cam.WidthMM, cam.DistanceMM)
 		case init := <-chG2bRobotInit:
 			id := init[0]
 			state.id2index[id] = len(state.multiRobot)
@@ -217,6 +224,66 @@ func (s *fullSlamState) addLineToMap(id, x1, y1 int) {
 	}
 	if obstruction {
 		s.setMapValue(x1Index, y1Index, mapObstacle)
+	}
+}
+
+// addCameraSegment converts a camera line segment (given in mm in robot body frame)
+// into map indices and marks the segment cells as obstacles. It also marks
+// cells between the robot and each obstacle cell as open (free space).
+func (s *fullSlamState) addCameraSegment(id, startMM, widthMM, distanceMM int) {
+
+	// Adjust distance for camera mounting offset
+	adjDist := distanceMM + config.CameraMountOffsetMM
+
+	// mm to cm for map coordinates
+	x1Map, y1Map := int(startMM/10), int(adjDist/10)
+	x2Map, y2Map := int((startMM+widthMM)/10), int(adjDist/10)
+
+	// Get robot pose
+	robot := s.getRobot(id)
+	x_pos, y_pos, theta := robot.X, robot.Y, robot.Theta
+
+	// Rotate segment endpoints to map frame. Theta 90 equals no rotation
+	x1Rotated, y1Rotated := utilities.Rotate(float64(x1Map), float64(y1Map), float64(theta-90))
+	x2Rotated, y2Rotated := utilities.Rotate(float64(x2Map), float64(y2Map), float64(theta-90))
+
+	// Translate to map coordinates
+	x1Map = int(math.Round(x1Rotated)) + x_pos
+	y1Map = int(math.Round(y1Rotated)) + y_pos
+	x2Map = int(math.Round(x2Rotated)) + x_pos
+	y2Map = int(math.Round(y2Rotated)) + y_pos
+
+	// get indices and clamp to map
+	x1Index, y1Index := calculateMapIndex(x1Map, y1Map)
+	x2Index, y2Index := calculateMapIndex(x2Map, y2Map)
+	x1Index = min(max(x1Index, 0), config.MapSize-1)
+	y1Index = min(max(y1Index, 0), config.MapSize-1)
+	x2Index = min(max(x2Index, 0), config.MapSize-1)
+	y2Index = min(max(y2Index, 0), config.MapSize-1)
+
+	// get the segment cells
+	segmentPoints := utilities.BresenhamAlgorithm(x1Index, y1Index, x2Index, y2Index)
+
+	// robot index
+	rxIndex, ryIndex := calculateMapIndex(robot.X, robot.Y)
+	rxIndex = min(max(rxIndex, 0), config.MapSize-1)
+	ryIndex = min(max(ryIndex, 0), config.MapSize-1)
+
+	for _, p := range segmentPoints {
+		sx := p[0]
+		sy := p[1]
+		// mark segment cell as obstacle
+		s.setMapValue(sx, sy, mapObstacle)
+
+		// mark free space between robot and obstacle (exclude obstacle cell itself)
+		lineToObs := utilities.BresenhamAlgorithm(rxIndex, ryIndex, sx, sy)
+		if len(lineToObs) > 1 {
+			for i := 0; i < len(lineToObs)-1; i++ {
+				lx := lineToObs[i][0]
+				ly := lineToObs[i][1]
+				s.setMapValue(lx, ly, mapOpen)
+			}
+		}
 	}
 }
 

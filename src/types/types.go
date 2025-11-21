@@ -44,6 +44,14 @@ type AdvMsg struct {
 	CovarianceMatrixNumber25 float32
 }
 
+// CameraMsg represents a camera line segment reported by a camera module.
+type CameraMsg struct {
+	Id         int
+	StartMM    int
+	WidthMM    int
+	DistanceMM int
+}
+
 const (
 	AutomaticCommand = iota
 	ManualCommand
