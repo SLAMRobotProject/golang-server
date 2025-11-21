@@ -100,34 +100,34 @@ func ThreadBackend(
 				chB2gRobotPendingInit <- msg.Id //Buffered channel, so it will not block.
 			} else {
 				//robot update
-				if msg.Valid != 0 {
-					// robot update
-					newX, newY := utilities.Rotate(float64(msg.X/10), float64(msg.Y/10), float64(state.getRobot(msg.Id).ThetaInit))
-					index := state.id2index[msg.Id]
-					state.multiRobot[index].X = int(newX) + state.getRobot(msg.Id).XInit
-					state.multiRobot[index].Y = int(newY) + state.getRobot(msg.Id).YInit
-					state.multiRobot[index].Theta = msg.Theta + state.getRobot(msg.Id).ThetaInit
+				newX, newY := utilities.Rotate(float64(msg.X/10), float64(msg.Y/10), float64(state.getRobot(msg.Id).ThetaInit))
+				index := state.id2index[msg.Id]
+				state.multiRobot[index].X = int(newX) + state.getRobot(msg.Id).XInit
+				state.multiRobot[index].Y = int(newY) + state.getRobot(msg.Id).YInit
+				state.multiRobot[index].Theta = msg.Theta + state.getRobot(msg.Id).ThetaInit
 
-					// map update, dependent upon an updated robot
-					state.addIrSensorData(msg.Id, msg.Ir1x, msg.Ir1y)
-					state.addIrSensorData(msg.Id, msg.Ir2x, msg.Ir2y)
-					state.addIrSensorData(msg.Id, msg.Ir3x, msg.Ir3y)
-					state.addIrSensorData(msg.Id, msg.Ir4x, msg.Ir4y)
+				// Her kommer oppdateringer fra roboten inn. Få den til å sende inn
+				// Kovariansmatrisen fra Kalmanfilteret også slik at det kan
+				// brukes i NEES!
 
-					// log position when changed
-					if msg.X != prevMsg.X || msg.Y != prevMsg.Y || msg.Theta != prevMsg.Theta {
-						covarianceMatrixString := formatCovarianceMatrix([5 * 5]float32{
-							msg.CovarianceMatrixNumber1, msg.CovarianceMatrixNumber2, msg.CovarianceMatrixNumber3, msg.CovarianceMatrixNumber4, msg.CovarianceMatrixNumber5,
-							msg.CovarianceMatrixNumber6, msg.CovarianceMatrixNumber7, msg.CovarianceMatrixNumber8, msg.CovarianceMatrixNumber9, msg.CovarianceMatrixNumber10,
-							msg.CovarianceMatrixNumber11, msg.CovarianceMatrixNumber12, msg.CovarianceMatrixNumber13, msg.CovarianceMatrixNumber14, msg.CovarianceMatrixNumber15,
-							msg.CovarianceMatrixNumber16, msg.CovarianceMatrixNumber17, msg.CovarianceMatrixNumber18, msg.CovarianceMatrixNumber19, msg.CovarianceMatrixNumber20,
-							msg.CovarianceMatrixNumber21, msg.CovarianceMatrixNumber22, msg.CovarianceMatrixNumber23, msg.CovarianceMatrixNumber24, msg.CovarianceMatrixNumber25,
-						})
-						positionLogger.Printf("%d %d %d %d %s\n", msg.Id, state.getRobot(msg.Id).X, state.getRobot(msg.Id).Y, state.getRobot(msg.Id).Theta, covarianceMatrixString)
-					}
-					prevMsg = msg
+				//map update, dependent upon an updated robot
+				state.addIrSensorData(msg.Id, msg.Ir1x, msg.Ir1y)
+				state.addIrSensorData(msg.Id, msg.Ir2x, msg.Ir2y)
+				state.addIrSensorData(msg.Id, msg.Ir3x, msg.Ir3y)
+				state.addIrSensorData(msg.Id, msg.Ir4x, msg.Ir4y)
+				//log position
+				if msg.X != prevMsg.X || msg.Y != prevMsg.Y || msg.Theta != prevMsg.Theta {
+					covarianceMatrixString := formatCovarianceMatrix([5 * 5]float32{
+						msg.CovarianceMatrixNumber1, msg.CovarianceMatrixNumber2, msg.CovarianceMatrixNumber3, msg.CovarianceMatrixNumber4, msg.CovarianceMatrixNumber5,
+						msg.CovarianceMatrixNumber6, msg.CovarianceMatrixNumber7, msg.CovarianceMatrixNumber8, msg.CovarianceMatrixNumber9, msg.CovarianceMatrixNumber10,
+						msg.CovarianceMatrixNumber11, msg.CovarianceMatrixNumber12, msg.CovarianceMatrixNumber13, msg.CovarianceMatrixNumber14, msg.CovarianceMatrixNumber15,
+						msg.CovarianceMatrixNumber16, msg.CovarianceMatrixNumber17, msg.CovarianceMatrixNumber18, msg.CovarianceMatrixNumber19, msg.CovarianceMatrixNumber20,
+						msg.CovarianceMatrixNumber21, msg.CovarianceMatrixNumber22, msg.CovarianceMatrixNumber23, msg.CovarianceMatrixNumber24, msg.CovarianceMatrixNumber25,
+					})
+					positionLogger.Printf("%d %d %d %d %s\n", msg.Id, state.getRobot(msg.Id).X, state.getRobot(msg.Id).Y, state.getRobot(msg.Id).Theta, covarianceMatrixString)
 				}
 			}
+			prevMsg = msg
 		case cam := <-chCamera:
 			if _, exist := state.id2index[cam.Id]; !exist {
 				log.GGeneralLogger.Printf("Camera message for unknown robot id=%d ignored (no init)", cam.Id)
