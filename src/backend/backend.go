@@ -93,15 +93,12 @@ func ThreadBackend(
 			}
 		case msg := <-chReceive:
 			if _, exist := pendingInit[msg.Id]; exist {
-				// skip
+				//skip
 			} else if _, exist := state.id2index[msg.Id]; !exist {
 				pendingInit[msg.Id] = struct{}{}
 				chB2gRobotPendingInit <- msg.Id //Buffered channel, so it will not block.
 			} else {
-				// If the incoming message contains a valid adv payload (from the
-				// robot), update pose and run IR-based mapping. Camera-only
-				// messages (CameraPresent=true) typically do not carry X/Y/Theta
-				// and must NOT overwrite the stored robot pose.
+				//robot update
 				if msg.Valid != 0 {
 					// robot update
 					newX, newY := utilities.Rotate(float64(msg.X/10), float64(msg.Y/10), float64(state.getRobot(msg.Id).ThetaInit))
@@ -131,8 +128,7 @@ func ThreadBackend(
 				}
 
 				// Camera messages should always be processed so segments are
-				// mapped, but must not clobber robot pose when they don't carry
-				// a valid pose (msg.Valid == 0).
+				// mapped, but must not overwrite robot pose when they don't carry a pose
 				if msg.CameraPresent {
 					state.addCameraSegment(msg.Id, msg.CameraStartMM, msg.CameraWidthMM, msg.CameraDistanceMM)
 				}
