@@ -11,10 +11,10 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
-// SubscribeCamera subscribes to camera topic and dispatches messages to chIncomingMsg
+// SubscribeCamera subscribes to camera topic and dispatches messages to chCamera
 // only if config.UseNiclaVision is enabled. The camera payload is expected to
 // contain three little-endian int16 values: x_start_mm, x_width_mm, distance_mm.
-func SubscribeCamera(client mqtt.Client, chIncomingMsg chan<- types.AdvMsg) {
+func SubscribeCamera(client mqtt.Client, chCamera chan<- types.CameraMsg) {
 	if !config.UseNiclaVision {
 		fmt.Println("\nNicla vision disabled via config.UseNiclaVision; camera subscription skipped")
 		log.GGeneralLogger.Println("Nicla vision disabled via config.UseNiclaVision; camera subscription skipped")
@@ -64,15 +64,14 @@ func SubscribeCamera(client mqtt.Client, chIncomingMsg chan<- types.AdvMsg) {
 			return
 		}
 
-		newMsg := types.AdvMsg{
-			Id:               int(identifier),
-			CameraStartMM:    int(start),
-			CameraWidthMM:    int(width),
-			CameraDistanceMM: int(distance),
-			CameraPresent:    true,
+		// Build and send a dedicated CameraMsg
+		cam := types.CameraMsg{
+			Id:         int(identifier),
+			StartMM:    int(start),
+			WidthMM:    int(width),
+			DistanceMM: int(distance),
 		}
-
-		chIncomingMsg <- newMsg
+		chCamera <- cam
 	}
 
 	topic := "v2/robot/+/cam"

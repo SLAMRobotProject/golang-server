@@ -42,11 +42,14 @@ type AdvMsg struct {
 	CovarianceMatrixNumber23 float32
 	CovarianceMatrixNumber24 float32
 	CovarianceMatrixNumber25 float32
-	// Nicla vision camera fields (present only when camera detected)
-	CameraStartMM    int
-	CameraWidthMM    int
-	CameraDistanceMM int
-	CameraPresent    bool
+}
+
+// CameraMsg represents a camera line segment reported by a camera module.
+type CameraMsg struct {
+	Id         int
+	StartMM    int
+	WidthMM    int
+	DistanceMM int
 }
 
 const (

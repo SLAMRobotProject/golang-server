@@ -47,6 +47,7 @@ func initFullSlamState() *fullSlamState {
 func ThreadBackend(
 	chPublish chan<- [3]int,
 	chReceive <-chan types.AdvMsg,
+	chCamera <-chan types.CameraMsg,
 	chB2gRobotPendingInit chan<- int,
 	chB2gUpdate chan<- types.UpdateGui,
 	chG2bRobotInit <-chan [4]int,
@@ -126,13 +127,13 @@ func ThreadBackend(
 					}
 					prevMsg = msg
 				}
-
-				// Camera messages should always be processed so segments are
-				// mapped, but must not overwrite robot pose when they don't carry a pose
-				if msg.CameraPresent {
-					state.addCameraSegment(msg.Id, msg.CameraStartMM, msg.CameraWidthMM, msg.CameraDistanceMM)
-				}
 			}
+		case cam := <-chCamera:
+			if _, exist := state.id2index[cam.Id]; !exist {
+				log.GGeneralLogger.Printf("Camera message for unknown robot id=%d ignored (no init)", cam.Id)
+				continue
+			}
+			state.addCameraSegment(cam.Id, cam.StartMM, cam.WidthMM, cam.DistanceMM)
 		case init := <-chG2bRobotInit:
 			id := init[0]
 			state.id2index[id] = len(state.multiRobot)
