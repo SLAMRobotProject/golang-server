@@ -13,3 +13,7 @@ Running from source:
    
 The executable was created with `broker="slam"` meaning that it will only connect to the physical Raspberry Pi broker. Connecting to the Raspberry Pi broker can be done by connecting your computer to the Raspberry Pi WiFi: `BorderRouter-AP` with password `12345678`.
 
+## How to run with Nicla Vision camera
+In config/config.go, subscribe to the camera topic by setting `const UseNiclaVision = true`.
+This will plot the camera data, if the server receives it.
+See the readme in the robot_code for physical camera setup.
