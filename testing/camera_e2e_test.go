@@ -12,10 +12,9 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
+// Make sure the server is running and a robot is connected first. Match the robotID.
 // Run in separate terminal with: go test -v
-// While the server is running and a robot is also running, match the robot ID.
 // TestCameraPublish publishes a sample camera segment payload to the MQTT broker.
-// This is an end-to-end helper test
 func TestCameraPublish(t *testing.T) {
 	broker := os.Getenv("MQTT_BROKER")
 	if broker == "" {
@@ -29,7 +28,7 @@ func TestCameraPublish(t *testing.T) {
 			port = p
 		}
 	}
-	robotID := 6
+	robotID := 5
 	if rid := os.Getenv("MQTT_ROBOT_ID"); rid != "" {
 		if r, err := strconv.Atoi(rid); err == nil {
 			robotID = r
