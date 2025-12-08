@@ -74,7 +74,7 @@ func SubscribeCamera(client mqtt.Client, chCamera chan<- types.CameraMsg) {
 		chCamera <- cam
 	}
 
-	topic := "v2/robot/+/cam"
+	topic := "v2/robot/cam"
 	token := client.Subscribe(topic, 1, handler)
 	token.Wait()
 	fmt.Printf("\nSubscribed to camera topic: %s\n", topic)
