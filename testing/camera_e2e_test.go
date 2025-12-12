@@ -43,9 +43,7 @@ func TestCameraPublish(t *testing.T) {
 	}
 	defer client.Disconnect(250)
 
-	// Topic can be fixed; the payload now contains the robot identifier as
-	// the first byte (mqttsn_camera_msg.identifier).
-	topic := "v2/robot/NRF_5/cam"
+	topic := "v2/robot/cam"
 
 	// Example values (mm): start = 0 (center), width = 400, distance = 400
 	start := int16(0)
