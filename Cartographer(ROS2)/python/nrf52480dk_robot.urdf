@@ -1,0 +1,192 @@
+<?xml version="1.0"?>
+<robot name="nrf52480dk_robot">
+
+    <material name="black">
+        <color rgba="0.1 0.1 0.1 1"/>
+    </material>
+    <material name="blue">
+        <color rgba="0.2 0.2 0.8 1"/>
+    </material>
+    <material name="grey">
+        <color rgba="0.6 0.6 0.6 1"/>
+    </material>
+    <material name="green">
+        <color rgba="0.1 0.7 0.1 1"/>
+    </material>
+
+    <link name="base_link">
+        <visual>
+            <origin xyz="0 0 0.02" rpy="0 0 0" /> 
+            <geometry>
+                <box size="0.20 0.16 0.04"/> 
+            </geometry>
+            <material name="black"/>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0.02" rpy="0 0 0" />
+            <geometry>
+                <box size="0.20 0.16 0.04"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <link name="front_left_wheel_link">
+        <visual>
+            <origin xyz="0 0 0" rpy="1.5707 0 0"/> <geometry>
+                <cylinder radius="0.03" length="0.02"/>
+            </geometry>
+            <material name="blue"/>
+        </visual>
+    </link>
+    <joint name="base_link_to_front_left_wheel" type="fixed">
+        <parent link="base_link"/>
+        <child link="front_left_wheel_link"/>
+        <origin xyz="0.075 0.09 -0.01" rpy="0 0 0"/> </joint>
+
+    <link name="front_right_wheel_link">
+        <visual>
+            <origin xyz="0 0 0" rpy="1.5707 0 0"/>
+            <geometry>
+                <cylinder radius="0.03" length="0.02"/>
+            </geometry>
+            <material name="blue"/>
+        </visual>
+    </link>
+    <joint name="base_link_to_front_right_wheel" type="fixed">
+        <parent link="base_link"/>
+        <child link="front_right_wheel_link"/>
+        <origin xyz="0.075 -0.09 -0.01" rpy="0 0 0"/>
+    </joint>
+
+    <link name="rear_left_wheel_link">
+        <visual>
+            <origin xyz="0 0 0" rpy="1.5707 0 0"/>
+            <geometry>
+                <cylinder radius="0.03" length="0.02"/>
+            </geometry>
+            <material name="black"/>
+        </visual>
+    </link>
+    <joint name="base_link_to_rear_left_wheel" type="fixed">
+        <parent link="base_link"/>
+        <child link="rear_left_wheel_link"/>
+        <origin xyz="-0.075 0.09 -0.01" rpy="0 0 0"/>
+    </joint>
+
+    <link name="rear_right_wheel_link">
+        <visual>
+            <origin xyz="0 0 0" rpy="1.5707 0 0"/>
+            <geometry>
+                <cylinder radius="0.03" length="0.02"/>
+            </geometry>
+            <material name="black"/>
+        </visual>
+    </link>
+    <joint name="base_link_to_rear_right_wheel" type="fixed">
+        <parent link="base_link"/>
+        <child link="rear_right_wheel_link"/>
+        <origin xyz="-0.075 -0.09 -0.01" rpy="0 0 0"/>
+    </joint>
+
+    <link name="upper_platform_link">
+        <visual>
+            <origin xyz="0 0 0.01" rpy="0 0 0" />
+            <geometry>
+                <box size="0.15 0.12 0.02"/>
+            </geometry>
+            <material name="grey"/>
+        </visual>
+    </link>
+    <joint name="base_link_to_upper_platform" type="fixed">
+        <parent link="base_link"/>
+        <child link="upper_platform_link"/>
+        <origin xyz="0 0 0.04" rpy="0 0 0"/> </joint>
+
+    <link name="sensor_tower_base_link">
+        <visual>
+            <origin xyz="0 0 0.02" rpy="0 0 0" />
+            <geometry>
+                <box size="0.06 0.06 0.04"/>
+            </geometry>
+            <material name="black"/>
+        </visual>
+    </link>
+    <joint name="upper_platform_to_sensor_tower_base" type="fixed">
+        <parent link="upper_platform_link"/>
+        <child link="sensor_tower_base_link"/>
+        <origin xyz="0.05 0 0.02" rpy="0 0 0"/> </joint>
+
+    <link name="sensor_tower_middle_link">
+        <visual>
+            <origin xyz="0 0 0.01" rpy="0 0 0" />
+            <geometry>
+                <box size="0.07 0.06 0.02"/>
+            </geometry>
+            <material name="green"/>
+        </visual>
+    </link>
+    <joint name="sensor_tower_base_to_middle" type="fixed">
+        <parent link="sensor_tower_base_link"/>
+        <child link="sensor_tower_middle_link"/>
+        <origin xyz="0 0 0.04" rpy="0 0 0"/>
+    </joint>
+
+    <link name="sensor_tower_top_link">
+        <visual>
+            <origin xyz="0 0 0.015" rpy="0 0 0" />
+            <geometry>
+                <cylinder radius="0.02" length="0.03"/>
+            </geometry>
+            <material name="black"/>
+        </visual>
+    </link>
+    <joint name="sensor_tower_middle_to_top" type="fixed">
+        <parent link="sensor_tower_middle_link"/>
+        <child link="sensor_tower_top_link"/>
+        <origin xyz="0 0 0.02" rpy="0 0 0"/>
+    </joint>
+
+    <link name="board1_link">
+        <visual>
+            <origin xyz="0 0 0.005" rpy="0 0 0" />
+            <geometry>
+                <box size="0.08 0.06 0.01"/>
+            </geometry>
+            <material name="green"/>
+        </visual>
+    </link>
+    <joint name="base_link_to_board1" type="fixed">
+        <parent link="base_link"/>
+        <child link="board1_link"/>
+        <origin xyz="0.04 0.04 0.04" rpy="0 0 0"/>
+    </joint>
+
+    <link name="board2_link">
+        <visual>
+            <origin xyz="0 0 0.005" rpy="0 0 0" />
+            <geometry>
+                <box size="0.08 0.06 0.01"/>
+            </geometry>
+            <material name="green"/>
+        </visual>
+    </link>
+    <joint name="base_link_to_board2" type="fixed">
+        <parent link="base_link"/>
+        <child link="board2_link"/>
+        <origin xyz="-0.04 -0.04 0.04" rpy="0 0 0"/>
+    </joint>
+
+
+    <link name="laser_frame"/>
+    <joint name="base_link_to_laser_frame" type="fixed">
+        <parent link="base_link"/>
+        <child link="laser_frame"/>
+        <origin xyz="0 0 0.1" rpy="0 0 0"/> </joint>
+
+    <link name="imu_link"/>
+    <joint name="base_link_to_imu_link" type="fixed">
+        <parent link="base_link"/>
+        <child link="imu_link"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/> </joint>
+
+</robot>

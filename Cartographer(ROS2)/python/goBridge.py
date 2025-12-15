@@ -33,10 +33,10 @@ class GoBridgeNode(Node):
         self.tf_broadcaster = TransformBroadcaster(self)
 
         # --- Frame IDs ---
-        self.odom_frame_id = 'odom'
-        self.base_frame_id = 'base_link'
+        self.odom_frame_id  = 'odom'
+        self.base_frame_id  = 'base_link'
         self.laser_frame_id = 'laser_frame'
-        self.imu_frame_id = 'imu_link'
+        self.imu_frame_id   = 'imu_link'
 
         self.get_logger().info('Go Bridge Node has started.')
         self.get_logger().info('Listening for Odom, IMU, and Scan data...')
