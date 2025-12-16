@@ -31,5 +31,6 @@ python3 goBridge.py
 ros2 launch cartographer.launch.py
 
 # Launch RVIz2 
+ros2 run rviz2 rviz2
 
 source /opt/ros/kilted/setup.bash
