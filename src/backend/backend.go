@@ -152,8 +152,8 @@ func ThreadBackend(
 
 				// Convert SLAM lines back to GUI points
 				for _, line := range state.slamMap.Lines {
-					// Filter: Only draw lines we have seen at least 3 times (removes noise)
-					if line.Score > 50.0 {
+					// Filter: Only draw lines we have seen confidently (removes candidate noise)
+					if line.Existence > 60.0 {
 						state.visualLines = append(state.visualLines, [2]types.Point{
 							{X: int(line.P1_X), Y: int(line.P1_Y)},
 							{X: int(line.P2_X), Y: int(line.P2_Y)},

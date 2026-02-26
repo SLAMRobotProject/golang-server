@@ -15,6 +15,25 @@ TCP_PORT = 9000
 MAP_SIZE_M = 4.0       
 MAP_OFFSET = MAP_SIZE_M / 2.0  # 2.0 meter
 
+# --- NOISE SETTINGS ---
+# Simulated sensor depth noise standard deviation (meters). 
+# Example: 0.05 = 68% of rays are within +/- 5cm of reality
+SENSOR_NOISE_STD_DEV = 0.05  
+
+# Noise injected into the calculated angle of the fitted line (radians)
+LINE_ANGLE_NOISE_STD_DEV = 0.05
+
+# Optional noise injected into the *reported* position (odometry drift over time / slip).
+# Set to 0.0 to disable.
+# Example: 0.02 = 2cm position noise per frame sent to the server.
+LOCATION_NOISE_STD_DEV = 0.0
+LOCATION_ANGLE_NOISE_STD_DEV = 0.0  # Radians
+
+# --- TRACKING MODE ---
+# If True, only the single closest fitted line to the robot is sent to the server.
+# If False, all visible lines are sent.
+TRACK_CLOSEST_ONLY = True
+
 # --- 1. ASYNKRON TCP KLIENT ---
 class AsyncTcpClient:
     def __init__(self, host, port):
@@ -152,8 +171,15 @@ class DigitalTwin:
                 t1 = np.cross(v2, v1) / dot
                 t2 = np.dot(v1, v3) / dot
                 if t1 >= 0 and t1 < closest_dist and 0 <= t2 <= 1:
-                    closest_dist = t1
-                    closest_point = p1 + ray_dir * t1
+                    noisy_t1 = t1
+                    if SENSOR_NOISE_STD_DEV > 0:
+                        noisy_t1 += np.random.normal(0, SENSOR_NOISE_STD_DEV)
+                    
+                    if noisy_t1 < 0.1: 
+                        noisy_t1 = 0.1
+
+                    closest_dist = noisy_t1
+                    closest_point = p1 + ray_dir * noisy_t1
             if closest_point is not None: hits.append(closest_point)
         return np.array(hits)
 
@@ -179,30 +205,67 @@ class DigitalTwin:
         self.pose[1] = max(0.1, min(3.9, self.pose[1]))
 
 # --- Helper functions ---
-def perp_distance(point, ls, le):
-    if np.all(ls == le): return np.linalg.norm(point - ls)
-    return np.abs(np.cross(le-ls, ls-point)) / np.linalg.norm(le-ls)
+def fit_line_to_cluster(points):
+    """
+    Fits a straight line to a cluster of 2D points using linear regression (PCA).
+    Returns the two extreme points projected onto this best-fit line.
+    """
+    if len(points) < 2:
+        return [points[0], points[0]]
+        
+    points = np.array(points)
+    
+    # Check if points are mostly vertical to avoid infinite slope
+    x_spread = np.max(points[:, 0]) - np.min(points[:, 0])
+    y_spread = np.max(points[:, 1]) - np.min(points[:, 1])
+    
+    if y_spread > x_spread:
+        # Fit x as a function of y
+        slope, intercept = np.polyfit(points[:, 1], points[:, 0], 1)
+        # Find endpoints by projecting min and max Y
+        y_min, y_max = np.min(points[:, 1]), np.max(points[:, 1])
+        p1 = np.array([slope * y_min + intercept, y_min])
+        p2 = np.array([slope * y_max + intercept, y_max])
+    else:
+        # Fit y as a function of x
+        slope, intercept = np.polyfit(points[:, 0], points[:, 1], 1)
+        # Find endpoints by projecting min and max X
+        x_min, x_max = np.min(points[:, 0]), np.max(points[:, 0])
+        p1 = np.array([x_min, slope * x_min + intercept])
+        p2 = np.array([x_max, slope * x_max + intercept])
 
-def split_and_merge(points, threshold):
-    if len(points) < 2: return []
-    dmax = 0; index = 0; ls = points[0]; le = points[-1]
-    for i in range(1, len(points)-1):
-        d = perp_distance(points[i], ls, le)
-        if d > dmax: index = i; dmax = d
-    if dmax > threshold:
-        return split_and_merge(points[:index+1], threshold) + split_and_merge(points[index:], threshold)
-    return [[ls, le]]
+    # --- Apply Angle Noise to the Fitted Line ---
+    if LINE_ANGLE_NOISE_STD_DEV > 0:
+        # 1. Find the center of the line
+        center = (p1 + p2) / 2.0
+        
+        # 2. Add noise to the angle
+        alpha = np.random.normal(0, LINE_ANGLE_NOISE_STD_DEV)
+        
+        # 3. Rotate endpoints around the center
+        c, s = np.cos(alpha), np.sin(alpha)
+        # Shift to origin, rotate, shift back
+        v1 = p1 - center
+        p1 = center + np.array([c*v1[0] - s*v1[1], s*v1[0] + c*v1[1]])
+        
+        v2 = p2 - center
+        p2 = center + np.array([c*v2[0] - s*v2[1], s*v2[0] + c*v2[1]])
+        
+    return [p1, p2]
 
 def process_lidar_data(points):
     if len(points) == 0: return []
     clusters = []; curr = [points[0]]
     for i in range(1, len(points)):
-        if np.linalg.norm(points[i]-points[i-1]) > 0.5: # 0.5m threshold
+        if np.linalg.norm(points[i]-points[i-1]) > 0.5: # 0.5m threshold (gap between walls)
             clusters.append(np.array(curr)); curr = []
         curr.append(points[i])
     clusters.append(np.array(curr))
+    
     lines = []
-    for c in clusters: lines.extend(split_and_merge(c, 0.1))
+    for c in clusters: 
+        if len(c) > 2: # Need a few points to make a reliable fitted line
+            lines.append(fit_line_to_cluster(c))
     return lines
 
 # --- MAIN ---
@@ -230,23 +293,53 @@ def update(frame):
     sim.update_physics(raw_points)
     extracted_lines = process_lidar_data(raw_points)
     
-    # Konverter posisjon til CM
-    x_cm = sim.pose[0] * 100
-    y_cm = sim.pose[1] * 100
-    theta_deg = np.degrees(sim.pose[2])
+    # Konverter posisjon til CM og legg til eventuell "Location Noise" (Odometry drift)
+    noisy_x = sim.pose[0]
+    noisy_y = sim.pose[1]
+    noisy_theta = sim.pose[2]
+    
+    if LOCATION_NOISE_STD_DEV > 0:
+        noisy_x += np.random.normal(0, LOCATION_NOISE_STD_DEV)
+        noisy_y += np.random.normal(0, LOCATION_NOISE_STD_DEV)
+    if LOCATION_ANGLE_NOISE_STD_DEV > 0:
+        noisy_theta += np.random.normal(0, LOCATION_ANGLE_NOISE_STD_DEV)
+
+    x_cm = noisy_x * 100
+    y_cm = noisy_y * 100
+    theta_deg = np.degrees(noisy_theta)
+
+    if len(extracted_lines) > 0 and TRACK_CLOSEST_ONLY:
+        best_line = None
+        min_dist = float('inf')
+        
+        for line in extracted_lines:
+            # Orthogonal distance from robot to this fitted line segment
+            p1 = np.array(line[0])
+            p2 = np.array(line[1])
+            robot_pt = sim.pose[:2]
+            
+            # Simple midpoint distance approximation for selecting "closest wall"
+            midpoint = (p1 + p2) / 2.0
+            dist = np.linalg.norm(midpoint - robot_pt)
+            
+            if dist < min_dist:
+                min_dist = dist
+                best_line = line
+                
+        extracted_lines = [best_line]
 
     # Send data (Posisjonene blir sentrert inni send_packet)
     if len(extracted_lines) == 0:
         tcp_client.send_packet(ROBOT_ID, x_cm, y_cm, theta_deg, np.array([0,0]), np.array([0,0]))
     else:
         for line in extracted_lines:
-            dx = line[0][0] - sim.pose[0]
-            dy = line[0][1] - sim.pose[1]
-            c, s = np.cos(-sim.pose[2]), np.sin(-sim.pose[2])
+            dx = line[0][0] - noisy_x
+            dy = line[0][1] - noisy_y
+            c, s = np.cos(-noisy_theta), np.sin(-noisy_theta)
             local_start = np.array([c*dx - s*dy, s*dx + c*dy])
             
-            dx2 = line[1][0] - sim.pose[0]
-            dy2 = line[1][1] - sim.pose[1]
+            dx2 = line[1][0] - noisy_x
+            dy2 = line[1][1] - noisy_y
             local_end = np.array([c*dx2 - s*dy2, s*dx2 + c*dy2])
             
             tcp_client.send_packet(ROBOT_ID, x_cm, y_cm, theta_deg, local_start, local_end)

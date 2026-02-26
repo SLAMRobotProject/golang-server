@@ -77,6 +77,6 @@ type MapLine struct {
 	P1_X, P1_Y float64
 	P2_X, P2_Y float64
 
-	Score float64 // How well do we know this wall?
-	Count int     // How many times have we seen this wall?
+	Existence float64 // How well do we know this wall?
+	Count     int     // How many times have we seen this wall?
 }
