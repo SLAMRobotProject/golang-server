@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"golang-server/backend"
 	"golang-server/communication"
 	"golang-server/gui"
@@ -13,6 +14,7 @@ func main() {
 	//only backend can publish and receive
 	chPublish := make(chan [3]int, 3)
 	chReceive := make(chan types.AdvMsg, 3)
+	chCamera := make(chan types.CameraMsg, 16)
 
 	//g2b = gui to backend
 	chG2bRobotInit := make(chan [4]int, 3)
@@ -25,6 +27,7 @@ func main() {
 	go backend.ThreadBackend(
 		chPublish,
 		chReceive,
+		chCamera,
 		chB2gRobotPendingInit,
 		chB2gUpdate,
 		chG2bRobotInit,
@@ -33,7 +36,13 @@ func main() {
 
 	client := communication.InitMqtt()
 	communication.Subscribe(client, chReceive)
+	communication.SubscribeCamera(client, chCamera)
+	go communication.StartDigitalTwinTCPServer("localhost:9000", chCamera, chReceive, chG2bRobotInit)
 	go communication.ThreadMqttPublish(client, chPublish)
+
+	//go slam.ThreadSlam(chReceive, chCamera, nil)
+
+	fmt.Printf("Starter GUI...\n")
 
 	//window.ShowAndRun() must be run in the main thread. So the GUI must be initialized here.
 	window, mapImage, mapCanvas, allRobotsHandle, manualInput, initInput := gui.InitGui(chG2bCommand)

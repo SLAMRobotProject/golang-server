@@ -6,7 +6,10 @@ import (
 	"golang-server/types"
 	"image"
 	"image/color"
+	"math"
 	"strconv"
+	"sync"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -17,13 +20,23 @@ import (
 
 var (
 	red     = color.RGBA{0xff, 0x00, 0x00, 0xff}
-	green   = color.RGBA{0x00, 0xff, 0xff, 0xff}
+	green   = color.RGBA{0x00, 0xff, 0x00, 0xff}
 	blue    = color.RGBA{0x00, 0x00, 0xff, 0xff}
 	gray    = color.RGBA{0x80, 0x80, 0x80, 0xff}
 	darkRed = color.RGBA{0x8b, 0x00, 0x00, 0xff}
 	orangeT = color.RGBA{0xff, 0xa5, 0x00, 0x80} //transparent orange
 	white   = color.White
 	black   = color.Black
+)
+
+var (
+	lastMultiRobot []types.RobotState
+	lastId2Index   map[int]int
+	stateMu        sync.RWMutex
+
+	// Variabler for linjetegning
+	linesContainer *fyne.Container
+	activeLines    []*canvas.Line
 )
 
 func InitGui(
@@ -49,6 +62,8 @@ func InitGui(
 	//robot initialization
 	allRobotsHandle := initMultiRobotHandle()
 
+	linesContainer = container.NewWithoutLayout()
+
 	//input initialization
 	manualInput := container.NewAppTabs()
 	automaticInput := initAutoInput(chG2bCommand)
@@ -64,7 +79,7 @@ func InitGui(
 	axisContainer := container.New(axis, axis.xAxis, axis.yAxis, axis.xText, axis.yText)
 
 	//merging into one container
-	mapWithRobots := container.NewStack(mapCanvas, axisContainer, allRobotsHandle.container)
+	mapWithRobots := container.NewStack(mapCanvas, axisContainer, linesContainer, allRobotsHandle.container)
 	InputAndMap := container.NewHSplit(inputTabs, mapWithRobots)
 	w.SetContent(InputAndMap)
 
@@ -89,6 +104,16 @@ func ThreadGuiUpdate(
 			redrawMap(mapImage, partialState.NewOpen, partialState.NewObstacle)
 			mapCanvas.Refresh()
 			redrawRobots(allRobotsHandle, partialState.MultiRobot, partialState.Id2index)
+
+			if len(partialState.Lines) > 0 {
+				redrawLines(partialState.Lines)
+			} else if len(activeLines) > 0 {
+				for _, l := range activeLines {
+					l.Hidden = true
+				}
+				linesContainer.Refresh()
+			}
+
 		case idPending := <-chB2gRobotPendingInit:
 			initInput.Append(container.NewTabItem("NRF-"+strconv.Itoa(idPending), initInitializationInputTab(chG2bRobotInit, chRobotGuiInit, idPending)))
 		case init := <-chRobotGuiInit:
@@ -101,6 +126,54 @@ func ThreadGuiUpdate(
 			manualInput.Append(container.NewTabItem("NRF-"+strconv.Itoa(id), initManualInputTab(chG2bCommand, id)))
 		}
 	}
+}
+
+func redrawLines(lines [][2]types.Point) {
+	needed := len(lines)
+	current := len(activeLines)
+
+	if needed > current {
+		for i := 0; i < (needed - current); i++ {
+			newLine := canvas.NewLine(green)
+			newLine.StrokeWidth = 2
+			activeLines = append(activeLines, newLine)
+			linesContainer.Add(newLine)
+		}
+	}
+
+	if current > 100 && current > needed*2 {
+		for i := needed; i < current; i++ {
+			linesContainer.Remove(activeLines[i])
+		}
+		activeLines = activeLines[:needed]
+		current = needed
+	}
+
+	offsetX := float32(config.MapCenterX)
+	offsetY := float32(config.MapCenterY)
+
+	for i := 0; i < len(activeLines); i++ {
+		lineObj := activeLines[i]
+		if i < needed {
+			p1 := lines[i][0]
+			p2 := lines[i][1]
+
+			lineObj.Position1 = fyne.NewPos(
+				float32(p1.X)+offsetX,
+				-float32(p1.Y)+offsetY,
+			)
+
+			lineObj.Position2 = fyne.NewPos(
+				float32(p2.X)+offsetX,
+				-float32(p2.Y)+offsetY,
+			)
+
+			lineObj.Hidden = false
+		} else {
+			lineObj.Hidden = true
+		}
+	}
+	linesContainer.Refresh()
 }
 
 func redrawRobots(allRobotsHandle *multiRobotHandle, backendMultiRobot []types.RobotState, backendId2index map[int]int) {
@@ -205,4 +278,147 @@ func initManualInputTab(chG2bCommand chan<- types.Command, id int) *fyne.Contain
 		}
 	}))
 	return manualContainer
+}
+
+func SquareTestButton(chG2bCommand chan<- types.Command, id int) *widget.Button {
+	const (
+		acceptableRadius = 8
+		stallThreshold   = time.Second
+		dwellDuration    = 1500 * time.Millisecond
+		checkInterval    = 200 * time.Millisecond
+		graceDuration    = 4 * time.Second // give the robot time to rotate/start moving
+	)
+
+	squarePath := []struct{ X, Y int }{
+		{0, 100}, {100, 100}, {100, 0}, {0, 0},
+		{100, 0}, {100, 100}, {0, 100}, {0, 0},
+	}
+
+	send := func(x, y int) {
+		chG2bCommand <- types.Command{CommandType: types.ManualCommand, Id: id, X: x, Y: y}
+	}
+
+	waitForTarget := func(targetX, targetY int) {
+		time.Sleep(graceDuration) // ignore movement checks for a bit after sending
+
+		var (
+			lastPose   types.RobotState
+			lastUpdate = time.Now()
+		)
+
+		for {
+			time.Sleep(checkInterval)
+
+			pose, ok := getRobotPose(id)
+			if !ok {
+				continue
+			}
+
+			dist := math.Hypot(float64(pose.X-targetX), float64(pose.Y-targetY))
+			if dist <= acceptableRadius {
+				time.Sleep(dwellDuration)
+				return
+			}
+
+			if pose.X != lastPose.X || pose.Y != lastPose.Y {
+				lastPose = pose
+				lastUpdate = time.Now()
+				continue
+			}
+
+			if time.Since(lastUpdate) > stallThreshold {
+				send(targetX, targetY)
+				lastUpdate = time.Now()
+			}
+		}
+	}
+
+	return widget.NewButton("Run square test", func() {
+		go func() {
+			for _, waypoint := range squarePath {
+				send(waypoint.X, waypoint.Y)
+				waitForTarget(waypoint.X, waypoint.Y)
+			}
+		}()
+	})
+}
+
+func PatternTestButton(chG2bCommand chan<- types.Command, id int) *widget.Button {
+	const (
+		acceptableRadius = 8
+		stallThreshold   = time.Second
+		dwellDuration    = 1500 * time.Millisecond
+		checkInterval    = 200 * time.Millisecond
+		graceDuration    = 4 * time.Second // give the robot time to rotate/start moving
+	)
+
+	patternPath := []struct{ X, Y int }{
+		{50, 50},
+		{0, 100},
+		{-30, 80},
+		{40, 20},
+		{-40, 20},
+		{-40, 60},
+		{0, 60},
+		{0, 0},
+	}
+
+	send := func(x, y int) {
+		chG2bCommand <- types.Command{CommandType: types.ManualCommand, Id: id, X: x, Y: y}
+	}
+
+	waitForTarget := func(targetX, targetY int) {
+		time.Sleep(graceDuration) // ignore movement checks for a bit after sending
+
+		var (
+			lastPose   types.RobotState
+			lastUpdate = time.Now()
+		)
+
+		for {
+			time.Sleep(checkInterval)
+
+			pose, ok := getRobotPose(id)
+			if !ok {
+				continue
+			}
+
+			dist := math.Hypot(float64(pose.X-targetX), float64(pose.Y-targetY))
+			if dist <= acceptableRadius {
+				time.Sleep(dwellDuration)
+				return
+			}
+
+			if pose.X != lastPose.X || pose.Y != lastPose.Y {
+				lastPose = pose
+				lastUpdate = time.Now()
+				continue
+			}
+
+			if time.Since(lastUpdate) > stallThreshold {
+				send(targetX, targetY)
+				lastUpdate = time.Now()
+			}
+		}
+	}
+
+	return widget.NewButton("Run pattern test", func() {
+		go func() {
+			for _, waypoint := range patternPath {
+				send(waypoint.X, waypoint.Y)
+				waitForTarget(waypoint.X, waypoint.Y)
+			}
+		}()
+	})
+}
+
+func getRobotPose(id int) (types.RobotState, bool) {
+	stateMu.RLock()
+	defer stateMu.RUnlock()
+
+	index, ok := lastId2Index[id]
+	if !ok || index < 0 || index >= len(lastMultiRobot) {
+		return types.RobotState{}, false
+	}
+	return lastMultiRobot[index], true
 }

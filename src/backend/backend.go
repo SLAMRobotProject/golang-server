@@ -1,11 +1,14 @@
 package backend
 
 import (
+	"fmt"
 	"golang-server/config"
 	"golang-server/log"
+	"golang-server/slam"
 	"golang-server/types"
 	"golang-server/utilities"
 	"math"
+	"strings"
 	"time"
 )
 
@@ -26,6 +29,8 @@ type fullSlamState struct {
 	newOpen     [][2]int //new since last gui update
 	multiRobot  []types.RobotState
 	id2index    map[int]int
+	visualLines [][2]types.Point
+	slamMap     *slam.Map
 }
 
 func initFullSlamState() *fullSlamState {
@@ -37,6 +42,8 @@ func initFullSlamState() *fullSlamState {
 	}
 	s.id2index = make(map[int]int)
 
+	s.slamMap = slam.NewMap()
+
 	return &s
 }
 
@@ -45,6 +52,7 @@ func initFullSlamState() *fullSlamState {
 func ThreadBackend(
 	chPublish chan<- [3]int,
 	chReceive <-chan types.AdvMsg,
+	chCamera <-chan types.CameraMsg,
 	chB2gRobotPendingInit chan<- int,
 	chB2gUpdate chan<- types.UpdateGui,
 	chG2bRobotInit <-chan [4]int,
@@ -56,6 +64,7 @@ func ThreadBackend(
 	positionLogger := log.InitPositionLogger()
 	pendingInit := map[int]struct{}{} //simple and efficient way in golang to create a set to check values.
 	guiUpdateTicker := time.NewTicker(time.Second / config.GuiFrameRate)
+
 	for {
 		select {
 		case <-guiUpdateTicker.C:
@@ -65,10 +74,13 @@ func ThreadBackend(
 				Id2index:    state.id2index,
 				NewOpen:     state.newOpen,
 				NewObstacle: state.newObstacle,
+				Lines:       state.visualLines,
 			}
-			//reset newOpen and newObstacle
+			//reset newOpen and newObstacle and visualLines
 			state.newOpen = [][2]int{}
 			state.newObstacle = [][2]int{}
+			state.visualLines = [][2]types.Point{}
+
 		case command := <-chG2bCommand:
 			switch command.CommandType {
 			case types.AutomaticCommand:
@@ -114,6 +126,42 @@ func ThreadBackend(
 				}
 			}
 			prevMsg = msg
+		case cam := <-chCamera:
+			if _, exist := state.id2index[cam.Id]; !exist {
+				continue
+			}
+			robot := state.getRobot(cam.Id)
+
+			if cam.IsDirect {
+				// 1. ROTATE & TRANSLATE: Convert Robot-View to Global-View
+				// Assuming cam.P1X is in mm, dividing by 10 to get cm
+				p1x_rot, p1y_rot := utilities.Rotate(float64(cam.P1X)/10.0, float64(cam.P1Y)/10.0, float64(robot.Theta))
+				p2x_rot, p2y_rot := utilities.Rotate(float64(cam.P2X)/10.0, float64(cam.P2Y)/10.0, float64(robot.Theta))
+
+				p1GlobalX := float64(int(p1x_rot) + robot.X)
+				p1GlobalY := float64(int(p1y_rot) + robot.Y)
+				p2GlobalX := float64(int(p2x_rot) + robot.X)
+				p2GlobalY := float64(int(p2y_rot) + robot.Y)
+
+				// 2. PROCESS: Send to SLAM logic (Merge/Kalman Filter)
+				state.slamMap.ProcessLine(float64(robot.X), float64(robot.Y), p1GlobalX, p1GlobalY, p2GlobalX, p2GlobalY)
+
+				// 3. VISUALIZE: Re-populate visualLines from the SLAM map
+				// Clear old lines to avoid duplicates
+				state.visualLines = [][2]types.Point{}
+
+				// Convert SLAM lines back to GUI points
+				for _, line := range state.slamMap.Lines {
+					// Filter: Only draw lines we have seen at least 3 times (removes noise)
+					if line.Score > 50.0 {
+						state.visualLines = append(state.visualLines, [2]types.Point{
+							{X: int(line.P1_X), Y: int(line.P1_Y)},
+							{X: int(line.P2_X), Y: int(line.P2_Y)},
+						})
+					}
+				}
+			}
+
 		case init := <-chG2bRobotInit:
 			id := init[0]
 			state.id2index[id] = len(state.multiRobot)
@@ -121,6 +169,17 @@ func ThreadBackend(
 			delete(pendingInit, id)
 		}
 	}
+}
+
+func formatCovarianceMatrix(matrix [5 * 5]float32) string {
+	var sb strings.Builder
+	for i, value := range matrix {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(fmt.Sprintf("%f", value))
+	}
+	return sb.String()
 }
 
 func (s *fullSlamState) setMapValue(x, y int, value uint8) {
@@ -196,6 +255,104 @@ func (s *fullSlamState) addLineToMap(id, x1, y1 int) {
 	}
 	if obstruction {
 		s.setMapValue(x1Index, y1Index, mapObstacle)
+	}
+}
+
+// addGlobalSegment receives finished global coordinates (cm) and updates the map
+func (s *fullSlamState) addGlobalSegment(robotID int, p1, p2 types.Point) {
+	x1Index, y1Index := calculateMapIndex(int(math.Round(float64(p1.X))), int(math.Round(float64(p1.Y))))
+	x2Index, y2Index := calculateMapIndex(int(math.Round(float64(p2.X))), int(math.Round(float64(p2.Y))))
+
+	x1Index = min(max(x1Index, 0), config.MapSize-1)
+	y1Index = min(max(y1Index, 0), config.MapSize-1)
+	x2Index = min(max(x2Index, 0), config.MapSize-1)
+	y2Index = min(max(y2Index, 0), config.MapSize-1)
+
+	// Find all pixels along the wall (Obstacles)
+	segmentPoints := utilities.BresenhamAlgorithm(x1Index, y1Index, x2Index, y2Index)
+
+	// Find the robot's position in map indices
+	robot := s.getRobot(robotID)
+	rxIndex, ryIndex := calculateMapIndex(robot.X, robot.Y)
+	rxIndex = min(max(rxIndex, 0), config.MapSize-1)
+	ryIndex = min(max(ryIndex, 0), config.MapSize-1)
+
+	// Update the map
+	for _, p := range segmentPoints {
+		sx := p[0]
+		sy := p[1]
+
+		s.setMapValue(sx, sy, mapObstacle)
+
+		lineToObs := utilities.BresenhamAlgorithm(rxIndex, ryIndex, sx, sy)
+
+		if len(lineToObs) > 1 {
+			for i := 0; i < len(lineToObs)-1; i++ {
+				lx := lineToObs[i][0]
+				ly := lineToObs[i][1]
+				s.setMapValue(lx, ly, mapOpen)
+			}
+		}
+	}
+}
+
+// addCameraSegment converts a camera line segment (given in mm in robot body frame)
+// into map indices and marks the segment cells as obstacles. It also marks
+// cells between the robot and each obstacle cell as open (free space).
+func (s *fullSlamState) addCameraSegment(id, startMM, widthMM, distanceMM int) {
+
+	// Adjust distance for camera mounting offset
+	adjDist := distanceMM + config.CameraMountOffsetMM
+
+	// mm to cm for map coordinates
+	x1Map, y1Map := int(startMM/10), int(adjDist/10)
+	x2Map, y2Map := int((startMM+widthMM)/10), int(adjDist/10)
+
+	// Get robot pose
+	robot := s.getRobot(id)
+	x_pos, y_pos, theta := robot.X, robot.Y, robot.Theta
+
+	// Rotate segment endpoints to map frame. Theta 90 equals no rotation
+	x1Rotated, y1Rotated := utilities.Rotate(float64(x1Map), float64(y1Map), float64(theta-90))
+	x2Rotated, y2Rotated := utilities.Rotate(float64(x2Map), float64(y2Map), float64(theta-90))
+
+	// Translate to map coordinates
+	x1Map = int(math.Round(x1Rotated)) + x_pos
+	y1Map = int(math.Round(y1Rotated)) + y_pos
+	x2Map = int(math.Round(x2Rotated)) + x_pos
+	y2Map = int(math.Round(y2Rotated)) + y_pos
+
+	// get indices and clamp to map
+	x1Index, y1Index := calculateMapIndex(x1Map, y1Map)
+	x2Index, y2Index := calculateMapIndex(x2Map, y2Map)
+	x1Index = min(max(x1Index, 0), config.MapSize-1)
+	y1Index = min(max(y1Index, 0), config.MapSize-1)
+	x2Index = min(max(x2Index, 0), config.MapSize-1)
+	y2Index = min(max(y2Index, 0), config.MapSize-1)
+
+	// get the segment cells
+	segmentPoints := utilities.BresenhamAlgorithm(x1Index, y1Index, x2Index, y2Index)
+
+	// robot index
+	rxIndex, ryIndex := calculateMapIndex(robot.X, robot.Y)
+	rxIndex = min(max(rxIndex, 0), config.MapSize-1)
+	ryIndex = min(max(ryIndex, 0), config.MapSize-1)
+
+	for _, p := range segmentPoints {
+		sx := p[0]
+		sy := p[1]
+		// mark segment cell as obstacle
+		s.setMapValue(sx, sy, mapObstacle)
+
+		// mark free space between robot and obstacle (exclude obstacle cell itself)
+		lineToObs := utilities.BresenhamAlgorithm(rxIndex, ryIndex, sx, sy)
+		if len(lineToObs) > 1 {
+			for i := 0; i < len(lineToObs)-1; i++ {
+				lx := lineToObs[i][0]
+				ly := lineToObs[i][1]
+				s.setMapValue(lx, ly, mapOpen)
+			}
+		}
 	}
 }
 
