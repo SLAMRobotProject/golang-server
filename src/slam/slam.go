@@ -400,7 +400,7 @@ func (m *Map) OptimizeMap() {
 					gap = minNew - maxOld
 				}
 
-				if gap < 10.0 { // Safe to bump gap back up to 10cm
+				if gap < 10.0 {
 					// MERGE l2 INTO l1
 					// We project l2's endpoints onto l1
 					l1.update(l2.Rho, l2.Alpha, l2.P1_X, l2.P1_Y, l2.P2_X, l2.P2_Y, false)

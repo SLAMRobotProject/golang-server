@@ -21,7 +21,7 @@ MAP_OFFSET = MAP_SIZE_M / 2.0  # 2.0 meter
 SENSOR_NOISE_STD_DEV = 0.05  
 
 # Noise injected into the calculated angle of the fitted line (radians)
-LINE_ANGLE_NOISE_STD_DEV = 0.05
+LINE_ANGLE_NOISE_STD_DEV = 0.02
 
 # Optional noise injected into the *reported* position (odometry drift over time / slip).
 # Set to 0.0 to disable.
@@ -32,7 +32,7 @@ LOCATION_ANGLE_NOISE_STD_DEV = 0.0  # Radians
 # --- TRACKING MODE ---
 # If True, only the single closest fitted line to the robot is sent to the server.
 # If False, all visible lines are sent.
-TRACK_CLOSEST_ONLY = True
+TRACK_CLOSEST_ONLY = False
 
 # --- 1. ASYNKRON TCP KLIENT ---
 class AsyncTcpClient:
