@@ -41,7 +41,7 @@ var (
 
 func InitGui(
 	chG2bCommand chan<- types.Command,
-) (fyne.Window, *image.RGBA, *canvas.Image, *multiRobotHandle, *container.AppTabs, *container.AppTabs) {
+) (fyne.Window, *image.RGBA, *canvas.Image, *canvas.Image, *multiRobotHandle, *container.AppTabs, *container.AppTabs) {
 
 	a := app.New()
 	w := a.NewWindow("Canvas")
@@ -81,14 +81,32 @@ func InitGui(
 	//merging into one container
 	mapWithRobots := container.NewStack(mapCanvas, axisContainer, linesContainer, allRobotsHandle.container)
 	InputAndMap := container.NewHSplit(inputTabs, mapWithRobots)
-	w.SetContent(InputAndMap)
+	// Create the SLAM map canvas
+	slamMapShape := image.Rect(0, 0, config.MapSize, config.MapSize)
+	slamImage := image.NewRGBA(slamMapShape)
+	for x := 0; x < config.MapSize; x++ {
+		for y := 0; y < config.MapSize; y++ {
+			slamImage.Set(x, y, gray)
+		}
+	}
+	slamCanvas := canvas.NewImageFromImage(slamImage)
+	slamCanvas.FillMode = canvas.ImageFillContain
+	slamCanvas.SetMinSize(fyne.NewSize(config.MapMinimumDisplaySize, config.MapMinimumDisplaySize))
 
-	return w, mapImage, mapCanvas, allRobotsHandle, manualInput, initInput
+	mainTabs := container.NewAppTabs(
+		container.NewTabItem("Main UI", InputAndMap),
+		container.NewTabItem("SLAM debug", slamCanvas),
+	)
+
+	w.SetContent(mainTabs)
+
+	return w, mapImage, mapCanvas, slamCanvas, allRobotsHandle, manualInput, initInput
 }
 
 func ThreadGuiUpdate(
 	mapImage *image.RGBA,
 	mapCanvas *canvas.Image,
+	slamCanvas *canvas.Image,
 	allRobotsHandle *multiRobotHandle,
 	manualInput *container.AppTabs,
 	initInput *container.AppTabs,
@@ -101,6 +119,10 @@ func ThreadGuiUpdate(
 	for {
 		select {
 		case partialState := <-chB2gUpdate:
+			if partialState.SlamMapImg != nil {
+				slamCanvas.Image = partialState.SlamMapImg
+				slamCanvas.Refresh()
+			}
 			redrawMap(mapImage, partialState.NewOpen, partialState.NewObstacle)
 			mapCanvas.Refresh()
 			redrawRobots(allRobotsHandle, partialState.MultiRobot, partialState.Id2index)
@@ -207,10 +229,10 @@ func redrawMap(mapImage *image.RGBA, newOpen [][2]int, newObstacle [][2]int) {
 
 func initInitializationInputTab(chG2bRobotInit, chRobotGuiInit chan<- [4]int, id int) *fyne.Container {
 	inputX := widget.NewEntry()
-	inputX.SetPlaceHolder("x [cm]")
+	inputX.SetPlaceHolder("x [cm] (0=center)")
 
 	inputY := widget.NewEntry()
-	inputY.SetPlaceHolder("y [cm]")
+	inputY.SetPlaceHolder("y [cm] (0=center)")
 
 	inputTheta := widget.NewEntry()
 	inputTheta.SetPlaceHolder("theta [degrees]")

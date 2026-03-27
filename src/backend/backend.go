@@ -7,6 +7,7 @@ import (
 	"golang-server/slam"
 	"golang-server/types"
 	"golang-server/utilities"
+	"image"
 	"math"
 	"strings"
 	"time"
@@ -30,7 +31,8 @@ type fullSlamState struct {
 	multiRobot  []types.RobotState
 	id2index    map[int]int
 	visualLines [][2]types.Point
-	slamMap     *slam.Map
+	goSlam      *slam.GoSLAM // USING NATIVE GO SLAM
+	slamMapImg  image.Image
 }
 
 func initFullSlamState() *fullSlamState {
@@ -42,7 +44,7 @@ func initFullSlamState() *fullSlamState {
 	}
 	s.id2index = make(map[int]int)
 
-	s.slamMap = slam.NewMap()
+	s.goSlam = slam.NewGoSLAM()
 
 	return &s
 }
@@ -53,6 +55,7 @@ func ThreadBackend(
 	chPublish chan<- [3]int,
 	chReceive <-chan types.AdvMsg,
 	chCamera <-chan types.CameraMsg,
+	chCorrection chan<- types.CorrectionMsg,
 	chB2gRobotPendingInit chan<- int,
 	chB2gUpdate chan<- types.UpdateGui,
 	chG2bRobotInit <-chan [4]int,
@@ -75,6 +78,7 @@ func ThreadBackend(
 				NewOpen:     state.newOpen,
 				NewObstacle: state.newObstacle,
 				Lines:       state.visualLines,
+				SlamMapImg:  state.slamMapImg,
 			}
 			//reset newOpen and newObstacle and visualLines
 			state.newOpen = [][2]int{}
@@ -109,7 +113,7 @@ func ThreadBackend(
 				chB2gRobotPendingInit <- msg.Id //Buffered channel, so it will not block.
 			} else {
 				//robot update
-				newX, newY := utilities.Rotate(float64(msg.X/10), float64(msg.Y/10), float64(state.getRobot(msg.Id).ThetaInit))
+				newX, newY := utilities.Rotate(float64(msg.X)/10.0, float64(msg.Y)/10.0, float64(state.getRobot(msg.Id).ThetaInit))
 				index := state.id2index[msg.Id]
 				state.multiRobot[index].X = int(newX) + state.getRobot(msg.Id).XInit
 				state.multiRobot[index].Y = int(newY) + state.getRobot(msg.Id).YInit
@@ -133,35 +137,108 @@ func ThreadBackend(
 			robot := state.getRobot(cam.Id)
 
 			if cam.IsDirect {
-				// 1. ROTATE & TRANSLATE: Convert Robot-View to Global-View
-				// Assuming cam.P1X is in mm, dividing by 10 to get cm
-				p1x_rot, p1y_rot := utilities.Rotate(float64(cam.P1X)/10.0, float64(cam.P1Y)/10.0, float64(robot.Theta))
-				p2x_rot, p2y_rot := utilities.Rotate(float64(cam.P2X)/10.0, float64(cam.P2Y)/10.0, float64(robot.Theta))
+				p1xCm, p1yCm := utilities.Rotate(float64(cam.P1X)/10.0, float64(cam.P1Y)/10.0, float64(robot.ThetaInit))
+				_ = (p1xCm + float64(robot.XInit)) / 100.0 // p1xM
+				_ = (p1yCm + float64(robot.YInit)) / 100.0 // p1yM
 
-				p1GlobalX := float64(int(p1x_rot) + robot.X)
-				p1GlobalY := float64(int(p1y_rot) + robot.Y)
-				p2GlobalX := float64(int(p2x_rot) + robot.X)
-				p2GlobalY := float64(int(p2y_rot) + robot.Y)
+				p2xCm, p2yCm := utilities.Rotate(float64(cam.P2X)/10.0, float64(cam.P2Y)/10.0, float64(robot.ThetaInit))
+				p2xM := (p2xCm + float64(robot.XInit)) / 100.0
+				p2yM := (p2yCm + float64(robot.YInit)) / 100.0
 
-				// 2. PROCESS: Send to SLAM logic (Merge/Kalman Filter)
-				state.slamMap.ProcessLine(float64(robot.X), float64(robot.Y), p1GlobalX, p1GlobalY, p2GlobalX, p2GlobalY)
+				// The robot x,y are in cm
+				gX := float64(robot.X) / 100.0
+				gY := float64(robot.Y) / 100.0
+				gTheta := float64(robot.Theta) * math.Pi / 180.0
 
-				// 3. VISUALIZE: Re-populate visualLines from the SLAM map
-				// Clear old lines to avoid duplicates
-				state.visualLines = [][2]types.Point{}
+				var scan [][2]float64
 
-				// Convert SLAM lines back to GUI points
-				for _, line := range state.slamMap.Lines {
-					// Filter: Only draw lines we have seen confidently (removes candidate noise)
-					if line.Existence > 60.0 {
-						state.visualLines = append(state.visualLines, [2]types.Point{
-							{X: int(line.P1_X), Y: int(line.P1_Y)},
-							{X: int(line.P2_X), Y: int(line.P2_Y)},
-						})
+				// Dynamically calculate steps based on line length to make the scan dense
+				// Extract the exact endpoint to represent the physical LIDAR ray hit
+				dx := p2xM - gX
+				dy := p2yM - gY
+
+				// Unrotate to get local coordinates
+				c := math.Cos(-gTheta)
+				s := math.Sin(-gTheta)
+				localX := dx*c - dy*s
+				localY := dx*s + dy*c
+
+				dist := math.Hypot(localX, localY)
+				angle := math.Atan2(localY, localX)
+				scan = append(scan, [2]float64{angle, dist})
+
+				if img := state.goSlam.ProcessUpdate(gX, gY, gTheta, scan); img != nil {
+					state.slamMapImg = img
+
+					// Videresend korrigert posisjon tilbake til simulatoren
+					select {
+					case chCorrection <- types.CorrectionMsg{
+						Id:    cam.Id,
+						X:     state.goSlam.CurrentPose.X,
+						Y:     state.goSlam.CurrentPose.Y,
+						Theta: state.goSlam.CurrentPose.Theta,
+					}:
+					default:
 					}
 				}
-			}
 
+				// Clear old lines
+				state.visualLines = [][2]types.Point{}
+			} else {
+				state.addCameraSegment(cam.Id, cam.StartMM, cam.WidthMM, cam.DistanceMM)
+
+				// INVERSE SENSOR MODEL:
+				// Gjør om linje-segmentet til en liste med punkter ("scan") for GoSLAM
+				gX := float64(robot.X) / 100.0
+				gY := float64(robot.Y) / 100.0
+				gTheta := float64(robot.Theta) * math.Pi / 180.0
+
+				var scan [][2]float64
+
+				yLocal := float64(cam.DistanceMM+config.CameraMountOffsetMM) / 1000.0
+				widthM := float64(cam.WidthMM) / 1000.0
+				startXM := float64(cam.StartMM) / 1000.0
+
+				// Sample punkter langs linjen
+				numPoints := int(math.Abs(widthM) / 0.05) // Maks avstand mellom punkter = 5 cm
+				if numPoints < 2 {
+					numPoints = 2
+				}
+
+				for i := 0; i < numPoints; i++ {
+					t := float64(i) / float64(numPoints-1)
+					xLocal := startXM + t*widthM // xLocal er til Høyre
+
+					// GoSLAM forventer: x-aksen er 'frem', y-aksen er 'venstre' for å gi angle=0 rett frem.
+					// Derfor: forward = yLocal, left = -xLocal
+					forward := yLocal
+					left := -xLocal
+
+					dist := math.Hypot(forward, left)
+					angle := math.Atan2(left, forward)
+
+					// Videresend til slam systemet
+					scan = append(scan, [2]float64{angle, dist})
+				}
+
+				if img := state.goSlam.ProcessUpdate(gX, gY, gTheta, scan); img != nil {
+					state.slamMapImg = img
+
+					// Videresend korrigert posisjon tilbake til simulatoren
+					select {
+					case chCorrection <- types.CorrectionMsg{
+						Id:    cam.Id,
+						X:     state.goSlam.CurrentPose.X,
+						Y:     state.goSlam.CurrentPose.Y,
+						Theta: state.goSlam.CurrentPose.Theta,
+					}:
+					default:
+					}
+				}
+
+				// Clear old lines
+				state.visualLines = [][2]types.Point{}
+			}
 		case init := <-chG2bRobotInit:
 			id := init[0]
 			state.id2index[id] = len(state.multiRobot)
@@ -341,10 +418,11 @@ func (s *fullSlamState) addCameraSegment(id, startMM, widthMM, distanceMM int) {
 	for _, p := range segmentPoints {
 		sx := p[0]
 		sy := p[1]
-		// mark segment cell as obstacle
-		s.setMapValue(sx, sy, mapObstacle)
 
-		// mark free space between robot and obstacle (exclude obstacle cell itself)
+		// Bare marker som hinder hvis distansen er under maks range (f.eks. for å la kameraet melde "tomt rom")
+		if adjDist < 2900 {
+			s.setMapValue(sx, sy, mapObstacle)
+		} // mark free space between robot and obstacle (exclude obstacle cell itself)
 		lineToObs := utilities.BresenhamAlgorithm(rxIndex, ryIndex, sx, sy)
 		if len(lineToObs) > 1 {
 			for i := 0; i < len(lineToObs)-1; i++ {

@@ -19,7 +19,7 @@ const IrSensorMaxDistance = 60 //cm
 const CameraMountOffsetMM = 90
 
 // GUI
-const GuiFrameRate = 5            //fps
+const GuiFrameRate = 30           //fps
 const MapMinimumDisplaySize = 400 //px
 const WindowBreadth = 650         //px
 const WindowHeight = 400          //px

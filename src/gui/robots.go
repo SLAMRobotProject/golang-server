@@ -21,26 +21,54 @@ type robotLayout struct {
 	poseLabel       *canvas.Text
 	currentRatio    float32
 	currentRotation float64
+	baseLines       [3][2]fyne.Position // Original unscaled, unrotated lines
+	baseWidths      [3]float32          // Original unscaled widths
 }
 
 func initRobotLayout(lines [3]*canvas.Line) *robotLayout {
 	poseLabel := &canvas.Text{Text: "(0, 0, 0)", Alignment: fyne.TextAlignLeading, TextSize: 8, Color: red}
 	poseLabel.Move(fyne.NewPos(0, -20))
-	return &robotLayout{lines, poseLabel, 1, 90}
+
+	var baseLines [3][2]fyne.Position
+	var baseWidths [3]float32
+	for i, l := range lines {
+		baseLines[i][0] = l.Position1
+		baseLines[i][1] = l.Position2
+		baseWidths[i] = l.StrokeWidth
+	}
+
+	return &robotLayout{
+		lines:           lines,
+		poseLabel:       poseLabel,
+		currentRatio:    1,
+		currentRotation: 90,
+		baseLines:       baseLines,
+		baseWidths:      baseWidths,
+	}
+}
+
+func (m *robotLayout) updateGeometry() {
+	// The original geometry is drawn pointing UP (which means -Y in fyne).
+	// When currentRotation is 90, it expects no rotation relative to the GUI.
+	// As currentRotation deviates from 90, we rotate the lines.
+	absRot := -(m.currentRotation - 90)
+
+	for i, l := range m.lines {
+		p1, p2 := m.baseLines[i][0], m.baseLines[i][1]
+
+		x1, y1 := utilities.Rotate(float64(p1.X), float64(p1.Y), absRot)
+		x2, y2 := utilities.Rotate(float64(p2.X), float64(p2.Y), absRot)
+
+		l.Position1.X, l.Position1.Y = float32(x1)*m.currentRatio, float32(y1)*m.currentRatio
+		l.Position2.X, l.Position2.Y = float32(x2)*m.currentRatio, float32(y2)*m.currentRatio
+		l.StrokeWidth = m.baseWidths[i] * m.currentRatio
+	}
 }
 
 // Layout is called to pack all child objects into a specified size.
 func (m *robotLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
-	var ratio float32 = fyne.Min(size.Height, size.Width) / config.MapSize
-	adjustment := ratio / m.currentRatio
-	for _, line := range m.lines {
-		line.Position1.X *= adjustment
-		line.Position1.Y *= adjustment
-		line.Position2.X *= adjustment
-		line.Position2.Y *= adjustment
-		line.StrokeWidth *= adjustment
-	}
-	m.currentRatio = ratio
+	m.currentRatio = fyne.Min(size.Height, size.Width) / config.MapSize
+	m.updateGeometry()
 }
 
 // MinSize finds the smallest size that satisfies all the child objects.
@@ -54,15 +82,8 @@ func (m *robotLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 
 func (m *robotLayout) Rotate(thetaDeg float64) {
 	if thetaDeg != m.currentRotation {
-		diffTheta := -(thetaDeg - m.currentRotation) //negative because the rotation is clockwise (flipped y-axis)
-		for _, line := range m.lines {
-			x, y := utilities.Rotate(float64(line.Position1.X), float64(line.Position1.Y), float64(diffTheta))
-			line.Position1.X, line.Position1.Y = float32(x), float32(y)
-
-			x, y = utilities.Rotate(float64(line.Position2.X), float64(line.Position2.Y), float64(diffTheta))
-			line.Position2.X, line.Position2.Y = float32(x), float32(y)
-		}
 		m.currentRotation = thetaDeg
+		m.updateGeometry()
 	}
 }
 

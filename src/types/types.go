@@ -1,5 +1,7 @@
 package types
 
+import "image"
+
 //This package contains types that are used by multiple packages.
 //Generally they are used by channels to communicate between packages.
 
@@ -47,6 +49,7 @@ type UpdateGui struct {
 	NewOpen     [][2]int
 	NewObstacle [][2]int
 	Lines       [][2]Point
+	SlamMapImg  image.Image
 }
 
 type Position struct {
@@ -79,4 +82,11 @@ type MapLine struct {
 
 	Existence float64 // How well do we know this wall?
 	Count     int     // How many times have we seen this wall?
+}
+
+type CorrectionMsg struct {
+	Id    int
+	X     float64
+	Y     float64
+	Theta float64
 }

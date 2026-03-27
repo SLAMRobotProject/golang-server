@@ -22,7 +22,7 @@ func InitMqtt() mqtt.Client {
 	client := mqtt.NewClient(opts)
 	if token := client.Connect(); token.Wait() && token.Error() != nil {
 		log.GGeneralLogger.Println("Failed to connect to mqtt broker. Error: ", token.Error())
-		panic(token.Error())
+		//panic(token.Error())
 	}
 	return client
 }

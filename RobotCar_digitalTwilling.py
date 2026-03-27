@@ -136,8 +136,8 @@ class DigitalTwin:
         self.num_rays = 60
         self.max_range = 3.5
         self.safe_distance = 0.5
-        self.speed_step = 0.05
-        self.turn_step = 0.1
+        self.speed_step = 0.3 # Speeded up!
+        self.turn_step = 0.5
         self.manual_mode = False 
         self.keys = {'up': False, 'down': False, 'left': False, 'right': False}
         
