@@ -23,13 +23,13 @@ func main() {
 	//b2g = backend to gui
 	chB2gUpdate := make(chan types.UpdateGui, 3) //Buffered so it won't block ThreadBackend(types.AdvMsg
 	chB2gRobotPendingInit := make(chan int, 3)   //Buffered so it won't block ThreadBackend()
-	chCorrection := make(chan types.CorrectionMsg, 3)
+	chPoseUpdate := make(chan types.PoseUpdateMsg, 3)
 
 	go backend.ThreadBackend(
 		chPublish,
 		chReceive,
 		chCamera,
-		chCorrection,
+		chPoseUpdate,
 		chB2gRobotPendingInit,
 		chB2gUpdate,
 		chG2bRobotInit,
@@ -39,7 +39,7 @@ func main() {
 	client := communication.InitMqtt()
 	communication.Subscribe(client, chReceive)
 	communication.SubscribeCamera(client, chCamera)
-	go communication.StartDigitalTwinTCPServer("localhost:9000", chCamera, chReceive, chG2bRobotInit, chCorrection)
+	go communication.StartDigitalTwinTCPServer("localhost:9000", chCamera, chReceive, chG2bRobotInit, chPoseUpdate)
 	go communication.ThreadMqttPublish(client, chPublish)
 
 	//go slam.ThreadSlam(chReceive, chCamera, nil)
@@ -47,11 +47,12 @@ func main() {
 	fmt.Printf("Starter GUI...\n")
 
 	//window.ShowAndRun() must be run in the main thread. So the GUI must be initialized here.
-	window, mapImage, mapCanvas, slamCanvas, allRobotsHandle, manualInput, initInput := gui.InitGui(chG2bCommand)
+	window, mapImage, mapCanvas, slamLCanvas, slamGCanvas, allRobotsHandle, manualInput, initInput := gui.InitGui(chG2bCommand)
 	go gui.ThreadGuiUpdate(
 		mapImage,
 		mapCanvas,
-		slamCanvas,
+		slamLCanvas,
+		slamGCanvas,
 		allRobotsHandle,
 		manualInput, initInput,
 		chG2bCommand,

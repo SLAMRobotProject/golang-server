@@ -21,7 +21,7 @@ class DigitalTwinClient:
         ])
 
         # Start i kvadrant 3 (nederst til venstre, negativ X og negativ Y)
-        self.start_pose = [0.0, 0.0, 0.0]
+        self.start_pose = [-0.5, -0.5, 0.0]
         self.robot = RobotDigitalTwin(start_pose=self.start_pose, true_walls=self.TRUE_WALLS)
         
         # Vi lagrer en separat posisjon ("slam_pose") for at Go-serverens 
@@ -40,22 +40,22 @@ class DigitalTwinClient:
 
         # Start en lyttetråd for å motta korreksjoner fra Go-serveren
         self.running = True
-        self.listener_thread = threading.Thread(target=self.listen_for_corrections)
+        self.listener_thread = threading.Thread(target=self.listen_for_pose_updates)
         self.listener_thread.daemon = True
         self.listener_thread.start()
 
         self.controller = HybridController()
         self.waypoints = [
-            (-1.5, 0.0),   # Kjør nord for å unngå veggen i midten
+            (-1.0, -1.0),  # Tilbake til start
+            (-1.0, 0.0),   # Kjør nord for å unngå veggen i midten
             (1.0, 0.0),    # Kryss til høyre side
-            (1.0, -1.5),   # Kjør ned i høyre hjørne
-            (1.0, 1.5),    # Kjør helt opp til høyre
-            (-1.5, 1.5),   # Kryss tilbake til venstre
-            (-1.5, -1.5)   # Tilbake til start
+            (1.0, -1.0),   # Kjør ned i høyre hjørne
+            (1.0, 1.0),    # Kjør helt opp til høyre
+            (-1.0, 1.0)    # Kryss tilbake til venstre
         ]
         self.current_wp_idx = 0
 
-    def listen_for_corrections(self):
+    def listen_for_pose_updates(self):
         f = self.conn.makefile('r')
         while self.running:
             try:
@@ -63,7 +63,7 @@ class DigitalTwinClient:
                 if not line:
                     break
                 data = json.loads(line)
-                if data.get("type") == "correction":
+                if data.get("type") == "pose_update":
                     # Oppdaterer SLAM posisjonen i stedet for den rå EKF-en.
                     # Dette forhindrer en "feedback loop" som får roboten til å kjøre i sirkler.
                     self.slam_pose[0] = data["x"]
@@ -81,6 +81,10 @@ class DigitalTwinClient:
 
             # 2. Hent rå odometri fra EKF
             ekf_pose = self.robot.ekf.x[:3].flatten()
+
+            # Fallback: hold slam_pose synkronisert med EKF når ingen SLAM-korreksjon er mottatt.
+            # Korreksjonstrådene vil overskrive dette når en ekte korrigert pose ankommer.
+            self.slam_pose[:3] = ekf_pose
 
             dt = 0.01
 

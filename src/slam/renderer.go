@@ -6,135 +6,168 @@ import (
 	"math"
 )
 
-// Coordinates to Grid Index for the viewing window
-func (s *GoSLAM) posToGlobalIdx(x, y float64) (int, int, bool) {
-	ix := int(x/s.GridRes) + s.GlobalSize/2
-	iy := s.GlobalSize/2 - int(y/s.GridRes)
+const (
+	pixelsPerCell = 4 // render each grid cell as a 4×4 pixel block
 
-	if ix >= 0 && ix < s.GlobalSize && iy >= 0 && iy < s.GlobalSize {
-		return ix, iy, true
+	// Local view: SubHalf cells radius → matches the submap extent exactly
+	localImgSize = SubSize * pixelsPerCell
+
+	tickSpacing = 20 // cells between tick marks = 1.0 m
+	tickLen     = 1  // half-length of tick mark in pixels
+)
+
+var (
+	clrGray    = color.RGBA{128, 128, 128, 255} // unknown
+	clrWhite   = color.RGBA{255, 255, 255, 255} // free space
+	clrBlack   = color.RGBA{0, 0, 0, 255}       // wall
+	clrRed     = color.RGBA{255, 0, 0, 255}     // robot dot
+	clrOutside = color.RGBA{64, 64, 64, 255}    // outside submap bounds
+	clrAxis    = color.RGBA{0, 180, 255, 255}   // axis lines (cyan-blue)
+	clrTick    = color.RGBA{0, 230, 255, 255}   // tick marks (brighter cyan)
+	clrArrow   = color.RGBA{255, 220, 0, 255}   // direction shaft (yellow)
+
+	// One distinct tint per submap for the global view (cycles if > len)
+	submapTints = []color.RGBA{
+		{200, 230, 255, 255}, // light blue
+		{255, 230, 200, 255}, // light orange
+		{200, 255, 200, 255}, // light green
+		{255, 200, 255, 255}, // light pink
+		{255, 255, 200, 255}, // light yellow
+		{200, 255, 255, 255}, // light cyan
 	}
-	return 0, 0, false
+)
+
+func logOddsToColor(v float32, free, wall color.RGBA) color.RGBA {
+	if v > 0.2 {
+		return wall
+	} else if v < -0.1 {
+		return free
+	}
+	return clrGray
 }
 
-// computeGlobalGrid projects all submaps into a unified 2D float64 array for rendering.
-func (s *GoSLAM) computeGlobalGrid() []float64 {
-	compositeGrid := make([]float64, s.GlobalSize*s.GlobalSize)
+// renderLocal draws the active submap centered on the robot position (rxF, ryF in submap cell space).
+// The robot dot is always at the image center.
+func (m *OccupancyMap) renderLocal(s *Submap, rxF, ryF float64) *image.RGBA {
+	rx := int(math.Round(rxF))
+	ry := int(math.Round(ryF))
 
-	// Create a slice that contains completed submaps + the active one
-	allMaps := append(s.Submaps, s.ActiveSubmap)
+	img := image.NewRGBA(image.Rect(0, 0, localImgSize, localImgSize))
 
-	for _, sm := range allMaps {
-		if sm == nil {
-			continue
-		}
-
-		// Iterate through every cell in the submap and add it to the global composite
-		for ly := 0; ly < sm.GridSize; ly++ {
-			for lx := 0; lx < sm.GridSize; lx++ {
-				val := sm.Grid[ly*sm.GridSize+lx]
-				if math.Abs(val) < 0.1 {
-					continue // Ignore nearly empty log-odds blocks
-				}
-
-				// Convert local indices back to global coordinates based on the submap's OriginPose
-				dx := float64(lx-sm.GridSize/2) * s.GridRes
-				dy := float64(sm.GridSize/2-ly) * s.GridRes // Y is inverted in indices
-
-				gx := sm.OriginPose.X + dx
-				gy := sm.OriginPose.Y + dy
-
-				// Project onto composite map
-				gix, giy, valid := s.posToGlobalIdx(gx, gy)
-				if valid {
-					gIdx := giy*s.GlobalSize + gix
-					compositeGrid[gIdx] += val
-				}
-			}
-		}
-	}
-	return compositeGrid
-}
-
-// renderGridImage turns the log-odds back into a grayscale image byte array
-func (s *GoSLAM) renderGridImage() *image.RGBA {
-	rect := image.Rect(0, 0, s.GlobalSize, s.GlobalSize)
-	img := image.NewRGBA(rect)
-
-	// Combine all submaps into one flattened grid
-	logOddsGrid := s.computeGlobalGrid()
-
-	gridColor := color.RGBA{R: 200, G: 200, B: 200, A: 255}
-
-	for y := 0; y < s.GlobalSize; y++ {
-		for x := 0; x < s.GlobalSize; x++ {
-			logOdds := logOddsGrid[y*s.GlobalSize+x]
-
-			p := 1.0 - (1.0 / (1.0 + math.Exp(logOdds)))
-			val := uint8((1.0 - p) * 255.0)
-
-			img.Set(x, y, color.RGBA{R: val, G: val, B: val, A: 255})
-
-			if (x-s.GlobalSize/2)%100 == 0 || (y-s.GlobalSize/2)%100 == 0 {
-				img.Set(x, y, gridColor)
-			}
-		}
-	}
-
-	// Plot the robot trajectory on the map in a transparent RED color
-	red := color.RGBA{R: 255, G: 0, B: 0, A: 255}
-	for i, pose := range s.Poses {
-		ix, iy, valid := s.posToGlobalIdx(pose.X, pose.Y)
-		if valid {
-			if i > 0 {
-				prevPose := s.Poses[i-1]
-				pix, piy, pValid := s.posToGlobalIdx(prevPose.X, prevPose.Y)
-				if pValid {
-					distPixels := math.Hypot(float64(ix-pix), float64(iy-piy))
-					steps := int(distPixels) + 1
-					for step := 0; step <= steps; step++ {
-						t := float64(step) / float64(steps)
-						hx := int(float64(pix) + t*float64(ix-pix))
-						hy := int(float64(piy) + t*float64(iy-piy))
-
-						for dy := -1; dy <= 1; dy++ {
-							for dx := -1; dx <= 1; dx++ {
-								if hx+dx >= 0 && hx+dx < s.GlobalSize && hy+dy >= 0 && hy+dy < s.GlobalSize {
-									img.Set(hx+dx, hy+dy, red)
-								}
-							}
-						}
-					}
-				}
+	for cy := 0; cy < SubSize; cy++ {
+		for cx := 0; cx < SubSize; cx++ {
+			// cx/cy are pixel-grid offsets from the robot cell
+			wx := rx - SubHalf + cx
+			wy := ry - SubHalf + cy
+			var clr color.RGBA
+			if wx < 0 || wx >= SubSize || wy < 0 || wy >= SubSize {
+				clr = clrOutside
 			} else {
-				for dy := -1; dy <= 1; dy++ {
-					for dx := -1; dx <= 1; dx++ {
-						if ix+dx >= 0 && ix+dx < s.GlobalSize && iy+dy >= 0 && iy+dy < s.GlobalSize {
-							img.Set(ix+dx, iy+dy, red)
-						}
-					}
+				clr = logOddsToColor(s.grid[wy][wx], clrWhite, clrBlack)
+			}
+			baseX, baseY := cx*pixelsPerCell, cy*pixelsPerCell
+			for dy := 0; dy < pixelsPerCell; dy++ {
+				for dx := 0; dx < pixelsPerCell; dx++ {
+					img.Set(baseX+dx, baseY+dy, clr)
 				}
 			}
+		}
+	}
 
-			if i == len(s.Poses)-1 {
-				blue := color.RGBA{R: 0, G: 0, B: 255, A: 255}
-				for dy := -3; dy <= 3; dy++ {
-					for dx := -3; dx <= 3; dx++ {
-						if dx*dx+dy*dy <= 9 && ix+dx >= 0 && ix+dx < s.GlobalSize && iy+dy >= 0 && iy+dy < s.GlobalSize {
-							img.Set(ix+dx, iy+dy, blue)
-						}
-					}
+	const ctr = SubHalf * pixelsPerCell
+
+	// Axis lines
+	for p := 0; p < localImgSize; p++ {
+		img.Set(p, ctr, clrAxis)
+		img.Set(ctr, p, clrAxis)
+	}
+
+	// 1-metre tick marks
+	const tScale = tickSpacing * pixelsPerCell
+	const tLen = tickLen * pixelsPerCell
+	for t := tScale; t < SubHalf*pixelsPerCell; t += tScale {
+		for d := -tLen; d <= tLen; d++ {
+			img.Set(ctr+t, ctr+d, clrTick)
+			img.Set(ctr-t, ctr+d, clrTick)
+			img.Set(ctr+d, ctr+t, clrTick)
+			img.Set(ctr+d, ctr-t, clrTick)
+		}
+	}
+
+	// Direction shaft
+	theta := m.CurrentPose.Theta
+	imgDx := math.Cos(theta)
+	imgDy := -math.Sin(theta) // Y flipped in image space
+
+	const shaftPx = 12 * pixelsPerCell
+	const dotR = 2 * pixelsPerCell
+	for i := dotR + pixelsPerCell; i <= shaftPx; i++ {
+		px := ctr + int(math.Round(float64(i)*imgDx))
+		py := ctr + int(math.Round(float64(i)*imgDy))
+		if px >= 0 && px < localImgSize && py >= 0 && py < localImgSize {
+			img.Set(px, py, clrArrow)
+		}
+	}
+
+	// Robot dot (drawn last, on top)
+	for dy := -dotR; dy <= dotR; dy++ {
+		for dx := -dotR; dx <= dotR; dx++ {
+			img.Set(ctr+dx, ctr+dy, clrRed)
+		}
+	}
+	return img
+}
+
+// renderGlobal composites all submaps onto a world-sized image.
+// Each submap is tinted a distinct colour so boundaries are visible.
+// World grid is GridWidth×GridHeight cells at GridRes m/cell.
+const globalImgSize = GridWidth // 1 pixel per world cell (no upscale — it's large already)
+
+func (m *OccupancyMap) renderGlobal() *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, globalImgSize, globalImgSize))
+
+	// Fill with gray (unknown)
+	for y := 0; y < globalImgSize; y++ {
+		for x := 0; x < globalImgSize; x++ {
+			img.Set(x, y, clrGray)
+		}
+	}
+
+	for i, s := range m.submaps {
+		tint := submapTints[i%len(submapTints)]
+		ox, oy := s.Origin.X, s.Origin.Y
+
+		for cy := 0; cy < SubSize; cy++ {
+			for cx := 0; cx < SubSize; cx++ {
+				v := s.grid[cy][cx]
+				if v == 0 {
+					continue // never observed — leave gray from base
 				}
 
-				green := color.RGBA{R: 0, G: 255, B: 0, A: 255}
-				lineLength := 15.0
-				for step := 0.0; step <= lineLength; step += 0.5 {
-					hx := int(float64(ix) + math.Cos(pose.Theta)*step)
-					hy := int(float64(iy) - math.Sin(pose.Theta)*step)
-					if hx >= 0 && hx < s.GlobalSize && hy >= 0 && hy < s.GlobalSize {
-						img.Set(hx, hy, green)
-					}
+				// Convert submap cell → world cell
+				// submap cx=SubHalf → world X = ox/GridRes + GridOffX
+				wx := int(math.Round((ox/GridRes)+float64(GridOffX))) + (cx - SubHalf)
+				wy := GridOffY - int(math.Round(oy/GridRes)) + (cy - SubHalf)
+
+				if wx < 0 || wx >= GridWidth || wy < 0 || wy >= GridHeight {
+					continue
 				}
+
+				clr := logOddsToColor(v, tint, clrBlack)
+				img.Set(wx, wy, clr)
+			}
+		}
+	}
+
+	// Draw robot position
+	rpx := int(math.Round(m.CurrentPose.X/GridRes)) + GridOffX
+	rpy := GridOffY - int(math.Round(m.CurrentPose.Y/GridRes))
+	const dotR = 3
+	for dy := -dotR; dy <= dotR; dy++ {
+		for dx := -dotR; dx <= dotR; dx++ {
+			x, y := rpx+dx, rpy+dy
+			if x >= 0 && x < globalImgSize && y >= 0 && y < globalImgSize {
+				img.Set(x, y, clrRed)
 			}
 		}
 	}

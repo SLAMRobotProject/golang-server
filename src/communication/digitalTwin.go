@@ -11,7 +11,7 @@ import (
 
 type digitalTwinJSONMsg struct {
 	Id         int  `json:"Id"`
-	IsDirect   bool `json:"IsDirect"`
+	IsViritual bool `json:"IsViritual"`
 	IsCamera   bool `json:"IsCamera"`
 	X          int  `json:"X"`
 	Y          int  `json:"Y"`
@@ -27,7 +27,7 @@ type digitalTwinJSONMsg struct {
 	DistanceMM int  `json:"DistanceMM"`
 }
 
-func StartDigitalTwinTCPServer(port string, chCamera chan<- types.CameraMsg, chReceive chan<- types.AdvMsg, chG2bRobotInit chan<- [4]int, chCorrection <-chan types.CorrectionMsg) {
+func StartDigitalTwinTCPServer(port string, chCamera chan<- types.CameraMsg, chReceive chan<- types.AdvMsg, chG2bRobotInit chan<- [4]int, chPoseUpdate <-chan types.PoseUpdateMsg) {
 	listener, err := net.Listen("tcp", port)
 	if err != nil {
 		log.GGeneralLogger.Printf("Kunne ikke starte TCP server pÃ¥ %s: %v", port, err)
@@ -46,10 +46,10 @@ func StartDigitalTwinTCPServer(port string, chCamera chan<- types.CameraMsg, chR
 
 		fmt.Println("Digital Twin koblet til!")
 
-		// Start a thread purely to send corrections to this TCP connection
+		// Start a thread purely to send pose updates to this TCP connection
 		go func(c net.Conn) {
-			for corr := range chCorrection {
-				jsonStr := fmt.Sprintf(`{"type":"correction","x":%f,"y":%f,"theta":%f}`+"\n", corr.X, corr.Y, corr.Theta)
+			for poseUpdate := range chPoseUpdate {
+				jsonStr := fmt.Sprintf(`{"type":"pose_update","x":%f,"y":%f,"theta":%f}`+"\n", poseUpdate.X, poseUpdate.Y, poseUpdate.Theta)
 				c.Write([]byte(jsonStr))
 			}
 		}(conn)
@@ -82,20 +82,20 @@ func handleTwinConnection(conn net.Conn, chCamera chan<- types.CameraMsg, chRece
 		// Dispatch depending on message type
 		if msg.IsCamera {
 			chCamera <- types.CameraMsg{
-				Id:       msg.Id,
-				IsDirect: msg.IsDirect,
-				P1X:      msg.P1X, P1Y: msg.P1Y,
+				Id:         msg.Id,
+				IsViritual: msg.IsViritual,
+				P1X:        msg.P1X, P1Y: msg.P1Y,
 				P2X: msg.P2X, P2Y: msg.P2Y,
 				RhoMM: msg.RhoMM, AlphaMRad: msg.AlphaMRad,
 				StartMM:    msg.StartMM,
 				WidthMM:    msg.WidthMM,
 				DistanceMM: msg.DistanceMM,
 			}
-		} else if msg.IsDirect {
+		} else if msg.IsViritual {
 			chCamera <- types.CameraMsg{
-				Id:       msg.Id,
-				IsDirect: true,
-				P1X:      msg.P1X, P1Y: msg.P1Y,
+				Id:         msg.Id,
+				IsViritual: true,
+				P1X:        msg.P1X, P1Y: msg.P1Y,
 				P2X: msg.P2X, P2Y: msg.P2Y,
 				RhoMM: msg.RhoMM, AlphaMRad: msg.AlphaMRad,
 			}

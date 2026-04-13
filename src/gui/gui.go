@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"fmt"
 	"golang-server/config"
 	"golang-server/log"
 	"golang-server/types"
@@ -37,11 +38,30 @@ var (
 	// Variabler for linjetegning
 	linesContainer *fyne.Container
 	activeLines    []*canvas.Line
+
+	// SLAM local panel state
+	selectedRobotID  int = -1
+	slamRobotSelect  *widget.Select
+	slamPoseLabel    *widget.Label
+	slamRobotOptions []string
+
+	// SLAM global panel state
+	selectedGlobalRobotID  int = -1
+	slamGRobotSelect       *widget.Select
+	slamGRobotOptions      []string
 )
 
-func InitGui(
-	chG2bCommand chan<- types.Command,
-) (fyne.Window, *image.RGBA, *canvas.Image, *canvas.Image, *multiRobotHandle, *container.AppTabs, *container.AppTabs) {
+func InitGui(chG2bCommand chan<- types.Command,
+) (
+	fyne.Window,
+	*image.RGBA,
+	*canvas.Image,
+	*canvas.Image,
+	*canvas.Image,
+	*multiRobotHandle,
+	*container.AppTabs,
+	*container.AppTabs,
+) {
 
 	a := app.New()
 	w := a.NewWindow("Canvas")
@@ -89,24 +109,49 @@ func InitGui(
 			slamImage.Set(x, y, gray)
 		}
 	}
-	slamCanvas := canvas.NewImageFromImage(slamImage)
-	slamCanvas.FillMode = canvas.ImageFillContain
-	slamCanvas.SetMinSize(fyne.NewSize(config.MapMinimumDisplaySize, config.MapMinimumDisplaySize))
+	slamLCanvas := canvas.NewImageFromImage(slamImage)
+	slamLCanvas.FillMode = canvas.ImageFillContain
+	slamLCanvas.ScaleMode = canvas.ImageScaleSmooth
+	slamLCanvas.SetMinSize(fyne.NewSize(config.MapMinimumDisplaySize, config.MapMinimumDisplaySize))
+
+	slamGCanvas := canvas.NewImageFromImage(slamImage)
+	slamGCanvas.FillMode = canvas.ImageFillContain
+	slamGCanvas.ScaleMode = canvas.ImageScaleSmooth
+	slamGCanvas.SetMinSize(fyne.NewSize(config.MapMinimumDisplaySize, config.MapMinimumDisplaySize))
+
+	// SLAM Local tab: robot selector + pose/submap label above the map
+	slamRobotSelect = widget.NewSelect([]string{}, func(s string) {
+		fmt.Sscanf(s, "Robot %d", &selectedRobotID)
+	})
+	slamRobotSelect.PlaceHolder = "Select robot"
+	slamPoseLabel = widget.NewLabel("X: — Y: — θ: —  Submaps: —")
+	slamControls := container.NewHBox(slamRobotSelect, slamPoseLabel)
+	slamLocalTab := container.NewBorder(slamControls, nil, nil, nil, slamLCanvas)
+
+	// SLAM Global tab: robot selector above the global composite map
+	slamGRobotSelect = widget.NewSelect([]string{}, func(s string) {
+		fmt.Sscanf(s, "Robot %d", &selectedGlobalRobotID)
+	})
+	slamGRobotSelect.PlaceHolder = "Select robot"
+	slamGControls := container.NewHBox(slamGRobotSelect)
+	slamGlobalTab := container.NewBorder(slamGControls, nil, nil, nil, slamGCanvas)
 
 	mainTabs := container.NewAppTabs(
-		container.NewTabItem("Main UI", InputAndMap),
-		container.NewTabItem("SLAM debug", slamCanvas),
+		container.NewTabItem("RAW data", InputAndMap),
+		container.NewTabItem("SLAM Local", slamLocalTab),
+		container.NewTabItem("SLAM Global", slamGlobalTab),
 	)
 
 	w.SetContent(mainTabs)
 
-	return w, mapImage, mapCanvas, slamCanvas, allRobotsHandle, manualInput, initInput
+	return w, mapImage, mapCanvas, slamLCanvas, slamGCanvas, allRobotsHandle, manualInput, initInput
 }
 
 func ThreadGuiUpdate(
 	mapImage *image.RGBA,
 	mapCanvas *canvas.Image,
-	slamCanvas *canvas.Image,
+	slamLCanvas *canvas.Image,
+	slamGCanvas *canvas.Image,
 	allRobotsHandle *multiRobotHandle,
 	manualInput *container.AppTabs,
 	initInput *container.AppTabs,
@@ -119,33 +164,91 @@ func ThreadGuiUpdate(
 	for {
 		select {
 		case partialState := <-chB2gUpdate:
-			if partialState.SlamMapImg != nil {
-				slamCanvas.Image = partialState.SlamMapImg
-				slamCanvas.Refresh()
-			}
-			redrawMap(mapImage, partialState.NewOpen, partialState.NewObstacle)
-			mapCanvas.Refresh()
-			redrawRobots(allRobotsHandle, partialState.MultiRobot, partialState.Id2index)
+			fyne.Do(func() {
+				// Update robot selector options if robots have been added
+				updateSlamRobotSelector(partialState.Id2index)
 
-			if len(partialState.Lines) > 0 {
-				redrawLines(partialState.Lines)
-			} else if len(activeLines) > 0 {
-				for _, l := range activeLines {
-					l.Hidden = true
+				// SLAM Local — show selected robot's local map + pose
+				selID := selectedRobotID
+				if img, ok := partialState.SlamMapImgs[selID]; ok && img != nil {
+					slamLCanvas.Image = img
+					slamLCanvas.Refresh()
 				}
-				linesContainer.Refresh()
-			}
+				if selID >= 0 {
+					if idx, ok := partialState.Id2index[selID]; ok && idx < len(partialState.MultiRobot) {
+						r := partialState.MultiRobot[idx]
+						n := partialState.SlamSubmapCount[selID]
+						slamPoseLabel.SetText(fmt.Sprintf("X: %d cm  Y: %d cm  θ: %d°  Submaps: %d", r.X, r.Y, r.Theta, n))
+					}
+				}
+
+				// SLAM Global — show selected robot's composited world map
+				gSelID := selectedGlobalRobotID
+				if img, ok := partialState.SlamGlobalImgs[gSelID]; ok && img != nil {
+					slamGCanvas.Image = img
+					slamGCanvas.Refresh()
+				}
+
+				redrawMap(mapImage, partialState.NewOpen, partialState.NewObstacle)
+				mapCanvas.Refresh()
+				redrawRobots(allRobotsHandle, partialState.MultiRobot, partialState.Id2index)
+
+				if len(partialState.Lines) > 0 {
+					redrawLines(partialState.Lines)
+				} else if len(activeLines) > 0 {
+					for _, l := range activeLines {
+						l.Hidden = true
+					}
+					linesContainer.Refresh()
+				}
+			})
 
 		case idPending := <-chB2gRobotPendingInit:
-			initInput.Append(container.NewTabItem("NRF-"+strconv.Itoa(idPending), initInitializationInputTab(chG2bRobotInit, chRobotGuiInit, idPending)))
+			fyne.Do(func() {
+				initInput.Append(container.NewTabItem("NRF-"+strconv.Itoa(idPending), initInitializationInputTab(chG2bRobotInit, chRobotGuiInit, idPending)))
+			})
 		case init := <-chRobotGuiInit:
 			id := init[0]
-			for i := 0; i < len(initInput.Items); i++ {
-				if initInput.Items[i].Text == "NRF-"+strconv.Itoa(id) {
-					initInput.Remove(initInput.Items[i])
+			fyne.Do(func() {
+				for i := 0; i < len(initInput.Items); i++ {
+					if initInput.Items[i].Text == "NRF-"+strconv.Itoa(id) {
+						initInput.Remove(initInput.Items[i])
+					}
 				}
+				manualInput.Append(container.NewTabItem("NRF-"+strconv.Itoa(id), initManualInputTab(chG2bCommand, id)))
+			})
+		}
+	}
+}
+
+// updateSlamRobotSelector adds any new robot IDs to both selectors and auto-selects the first.
+func updateSlamRobotSelector(id2index map[int]int) {
+	changed := false
+	for id := range id2index {
+		label := fmt.Sprintf("Robot %d", id)
+		found := false
+		for _, opt := range slamRobotOptions {
+			if opt == label {
+				found = true
+				break
 			}
-			manualInput.Append(container.NewTabItem("NRF-"+strconv.Itoa(id), initManualInputTab(chG2bCommand, id)))
+		}
+		if !found {
+			slamRobotOptions = append(slamRobotOptions, label)
+			slamGRobotOptions = append(slamGRobotOptions, label)
+			changed = true
+		}
+	}
+	if changed {
+		slamRobotSelect.Options = slamRobotOptions
+		slamRobotSelect.Refresh()
+		slamGRobotSelect.Options = slamGRobotOptions
+		slamGRobotSelect.Refresh()
+		if selectedRobotID == -1 && len(slamRobotOptions) > 0 {
+			slamRobotSelect.SetSelected(slamRobotOptions[0])
+		}
+		if selectedGlobalRobotID == -1 && len(slamGRobotOptions) > 0 {
+			slamGRobotSelect.SetSelected(slamGRobotOptions[0])
 		}
 	}
 }

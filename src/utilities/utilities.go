@@ -2,7 +2,6 @@ package utilities
 
 import "math"
 
-//Generic rotate function used in multiple files.
 func Rotate(inputX, inputY, theta float64) (float64, float64) {
 	//rotate the point around origo. Theta is given in degrees.
 	thetaRad := theta * math.Pi / 180
@@ -11,7 +10,6 @@ func Rotate(inputX, inputY, theta float64) (float64, float64) {
 	return outputX, outputY
 }
 
-//Bresenham's line algorithm. Used to find all pixels to form a line between two points.
 func BresenhamAlgorithm(x0, y0, x1, y1 int) [][]int {
 	dx := math.Abs(float64(x1 - x0))
 	sx := 1

@@ -25,14 +25,15 @@ func initRobotState(x, y, theta int) *types.RobotState {
 }
 
 type fullSlamState struct {
-	areaMap     [config.MapSize][config.MapSize]uint8
-	newObstacle [][2]int //new since last gui update
-	newOpen     [][2]int //new since last gui update
-	multiRobot  []types.RobotState
-	id2index    map[int]int
-	visualLines [][2]types.Point
-	goSlam      *slam.GoSLAM // USING NATIVE GO SLAM
-	slamMapImg  image.Image
+	areaMap        [config.MapSize][config.MapSize]uint8
+	newObstacle    [][2]int //new since last gui update
+	newOpen        [][2]int //new since last gui update
+	multiRobot     []types.RobotState
+	id2index       map[int]int
+	visualLines    [][2]types.Point
+	slamMappers    map[int]*slam.OccupancyMap // one OccupancyMap per robot ID
+	slamMapImgs    map[int]image.Image        // latest local map image per robot ID
+	slamGlobalImgs map[int]image.Image        // latest global map image per robot ID
 }
 
 func initFullSlamState() *fullSlamState {
@@ -43,8 +44,9 @@ func initFullSlamState() *fullSlamState {
 		}
 	}
 	s.id2index = make(map[int]int)
-
-	s.goSlam = slam.NewGoSLAM()
+	s.slamMappers = make(map[int]*slam.OccupancyMap)
+	s.slamMapImgs = make(map[int]image.Image)
+	s.slamGlobalImgs = make(map[int]image.Image)
 
 	return &s
 }
@@ -55,7 +57,7 @@ func ThreadBackend(
 	chPublish chan<- [3]int,
 	chReceive <-chan types.AdvMsg,
 	chCamera <-chan types.CameraMsg,
-	chCorrection chan<- types.CorrectionMsg,
+	chPoseUpdate chan<- types.PoseUpdateMsg,
 	chB2gRobotPendingInit chan<- int,
 	chB2gUpdate chan<- types.UpdateGui,
 	chG2bRobotInit <-chan [4]int,
@@ -65,20 +67,27 @@ func ThreadBackend(
 
 	prevMsg := types.AdvMsg{}
 	positionLogger := log.InitPositionLogger()
-	pendingInit := map[int]struct{}{} //simple and efficient way in golang to create a set to check values.
+	pendingInit := map[int]struct{}{}
 	guiUpdateTicker := time.NewTicker(time.Second / config.GuiFrameRate)
 
 	for {
 		select {
 		case <-guiUpdateTicker.C:
 			//update gui
+			// Build submap counts for gui display
+			submapCounts := make(map[int]int, len(state.slamMappers))
+			for id, mapper := range state.slamMappers {
+				submapCounts[id] = mapper.SubmapCount()
+			}
 			chB2gUpdate <- types.UpdateGui{
-				MultiRobot:  state.multiRobot,
-				Id2index:    state.id2index,
-				NewOpen:     state.newOpen,
-				NewObstacle: state.newObstacle,
-				Lines:       state.visualLines,
-				SlamMapImg:  state.slamMapImg,
+				MultiRobot:      state.multiRobot,
+				Id2index:        state.id2index,
+				NewOpen:         state.newOpen,
+				NewObstacle:     state.newObstacle,
+				Lines:           state.visualLines,
+				SlamMapImgs:     state.slamMapImgs,
+				SlamGlobalImgs:  state.slamGlobalImgs,
+				SlamSubmapCount: submapCounts,
 			}
 			//reset newOpen and newObstacle and visualLines
 			state.newOpen = [][2]int{}
@@ -134,115 +143,72 @@ func ThreadBackend(
 			if _, exist := state.id2index[cam.Id]; !exist {
 				continue
 			}
-			robot := state.getRobot(cam.Id)
+			mapper := state.slamMappers[cam.Id]
 
-			if cam.IsDirect {
-				p1xCm, p1yCm := utilities.Rotate(float64(cam.P1X)/10.0, float64(cam.P1Y)/10.0, float64(robot.ThetaInit))
-				_ = (p1xCm + float64(robot.XInit)) / 100.0 // p1xM
-				_ = (p1yCm + float64(robot.YInit)) / 100.0 // p1yM
+			if cam.IsViritual {
+				if mapper != nil {
+					robot := state.getRobot(cam.Id)
+					gX := float64(robot.X) / 100.0
+					gY := float64(robot.Y) / 100.0
+					gTheta := float64(robot.Theta) * math.Pi / 180.0
 
-				p2xCm, p2yCm := utilities.Rotate(float64(cam.P2X)/10.0, float64(cam.P2Y)/10.0, float64(robot.ThetaInit))
-				p2xM := (p2xCm + float64(robot.XInit)) / 100.0
-				p2yM := (p2yCm + float64(robot.YInit)) / 100.0
+					// Convert the single endpoint to a scan ray in robot body frame
+					p2xCm, p2yCm := utilities.Rotate(float64(cam.P2X)/10.0, float64(cam.P2Y)/10.0, float64(robot.ThetaInit))
+					p2xM := (p2xCm + float64(robot.XInit)) / 100.0
+					p2yM := (p2yCm + float64(robot.YInit)) / 100.0
+					dx := p2xM - gX
+					dy := p2yM - gY
+					c, s := math.Cos(-gTheta), math.Sin(-gTheta)
+					localX := dx*c - dy*s
+					localY := dx*s + dy*c
+					angle := math.Atan2(localY, localX)
+					dist := math.Hypot(localX, localY)
 
-				// The robot x,y are in cm
-				gX := float64(robot.X) / 100.0
-				gY := float64(robot.Y) / 100.0
-				gTheta := float64(robot.Theta) * math.Pi / 180.0
-
-				var scan [][2]float64
-
-				// Dynamically calculate steps based on line length to make the scan dense
-				// Extract the exact endpoint to represent the physical LIDAR ray hit
-				dx := p2xM - gX
-				dy := p2yM - gY
-
-				// Unrotate to get local coordinates
-				c := math.Cos(-gTheta)
-				s := math.Sin(-gTheta)
-				localX := dx*c - dy*s
-				localY := dx*s + dy*c
-
-				dist := math.Hypot(localX, localY)
-				angle := math.Atan2(localY, localX)
-				scan = append(scan, [2]float64{angle, dist})
-
-				if img := state.goSlam.ProcessUpdate(gX, gY, gTheta, scan); img != nil {
-					state.slamMapImg = img
-
-					// Videresend korrigert posisjon tilbake til simulatoren
-					select {
-					case chCorrection <- types.CorrectionMsg{
-						Id:    cam.Id,
-						X:     state.goSlam.CurrentPose.X,
-						Y:     state.goSlam.CurrentPose.Y,
-						Theta: state.goSlam.CurrentPose.Theta,
-					}:
-					default:
+					scan := [][2]float64{{angle, dist}}
+					img, correction := mapper.ProcessUpdate(gX, gY, gTheta, scan)
+					state.slamMapImgs[cam.Id] = img
+					state.slamGlobalImgs[cam.Id] = mapper.RenderGlobal()
+					if correction != nil {
+						chPoseUpdate <- types.PoseUpdateMsg{Id: cam.Id, X: correction.X, Y: correction.Y, Theta: correction.Theta}
 					}
 				}
-
-				// Clear old lines
 				state.visualLines = [][2]types.Point{}
 			} else {
 				state.addCameraSegment(cam.Id, cam.StartMM, cam.WidthMM, cam.DistanceMM)
+				if mapper != nil {
+					robot := state.getRobot(cam.Id)
+					gX := float64(robot.X) / 100.0
+					gY := float64(robot.Y) / 100.0
+					gTheta := float64(robot.Theta) * math.Pi / 180.0
 
-				// INVERSE SENSOR MODEL:
-				// Gjør om linje-segmentet til en liste med punkter ("scan") for GoSLAM
-				gX := float64(robot.X) / 100.0
-				gY := float64(robot.Y) / 100.0
-				gTheta := float64(robot.Theta) * math.Pi / 180.0
-
-				var scan [][2]float64
-
-				yLocal := float64(cam.DistanceMM+config.CameraMountOffsetMM) / 1000.0
-				widthM := float64(cam.WidthMM) / 1000.0
-				startXM := float64(cam.StartMM) / 1000.0
-
-				// Sample punkter langs linjen
-				numPoints := int(math.Abs(widthM) / 0.05) // Maks avstand mellom punkter = 5 cm
-				if numPoints < 2 {
-					numPoints = 2
-				}
-
-				for i := 0; i < numPoints; i++ {
-					t := float64(i) / float64(numPoints-1)
-					xLocal := startXM + t*widthM // xLocal er til Høyre
-
-					// GoSLAM forventer: x-aksen er 'frem', y-aksen er 'venstre' for å gi angle=0 rett frem.
-					// Derfor: forward = yLocal, left = -xLocal
-					forward := yLocal
-					left := -xLocal
-
-					dist := math.Hypot(forward, left)
-					angle := math.Atan2(left, forward)
-
-					// Videresend til slam systemet
-					scan = append(scan, [2]float64{angle, dist})
-				}
-
-				if img := state.goSlam.ProcessUpdate(gX, gY, gTheta, scan); img != nil {
-					state.slamMapImg = img
-
-					// Videresend korrigert posisjon tilbake til simulatoren
-					select {
-					case chCorrection <- types.CorrectionMsg{
-						Id:    cam.Id,
-						X:     state.goSlam.CurrentPose.X,
-						Y:     state.goSlam.CurrentPose.Y,
-						Theta: state.goSlam.CurrentPose.Theta,
-					}:
-					default:
+					// Sample the line segment into scan rays (forward=dist, lateral=start..start+width)
+					yLocal := float64(cam.DistanceMM+config.CameraMountOffsetMM) / 1000.0
+					widthM := float64(cam.WidthMM) / 1000.0
+					startXM := float64(cam.StartMM) / 1000.0
+					numPoints := int(math.Abs(widthM) / 0.05)
+					if numPoints < 2 {
+						numPoints = 2
+					}
+					scan := make([][2]float64, numPoints)
+					for i := 0; i < numPoints; i++ {
+						t := float64(i) / float64(numPoints-1)
+						xLocal := startXM + t*widthM
+						scan[i] = [2]float64{math.Atan2(xLocal, yLocal), math.Hypot(yLocal, xLocal)}
+					}
+					img, correction := mapper.ProcessUpdate(gX, gY, gTheta, scan)
+					state.slamMapImgs[cam.Id] = img
+					state.slamGlobalImgs[cam.Id] = mapper.RenderGlobal()
+					if correction != nil {
+						chPoseUpdate <- types.PoseUpdateMsg{Id: cam.Id, X: correction.X, Y: correction.Y, Theta: correction.Theta}
 					}
 				}
-
-				// Clear old lines
 				state.visualLines = [][2]types.Point{}
 			}
 		case init := <-chG2bRobotInit:
 			id := init[0]
 			state.id2index[id] = len(state.multiRobot)
 			state.multiRobot = append(state.multiRobot, *initRobotState(init[1], init[2], init[3]))
+			state.slamMappers[id] = slam.NewOccupancyMap()
 			delete(pendingInit, id)
 		}
 	}

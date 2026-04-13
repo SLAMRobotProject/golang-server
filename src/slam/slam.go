@@ -3,282 +3,130 @@ package slam
 import (
 	"image"
 	"math"
-	"sync"
 )
 
-// GoSLAM is the native Go implementation of the Grid-based SLAM and Matcher
-type GoSLAM struct {
-	Poses      []Pose
-	GridRes    float64
-	GlobalSize int // Used for rendering the viewing window
+const (
+	GridRes      = 0.05 // meters per cell (5 cm)
+	GridWidth    = 400  // world grid cells → 20 m total
+	GridHeight   = 400
+	GridOffX     = 200  // cell index of the world origin
+	GridOffY     = 200
+	MaxBuildDist = 3.5  // only mark walls within sensor reliable range (m)
+	MinBuildDist = 0.15 // ignore points closer than this (noise floor)
+)
 
-	Submaps      []*Submap
-	ActiveSubmap *Submap
-	SubmapRadius float64 // Distance before starting a new submap
-
-	DistThresh  float64
-	AngleThresh float64
-	LastIcpPose Pose
-
-	CurrentPose Pose // The true, integrated SLAM pose
-	LastRawOdom Pose // EKF pose from the previous frame to calculate deltas
-	Initialized bool // Flag to drop the first frame's relative odometry
-
-	PendingScan []RayPoint // accumulate single rays until the robot moves
-
-	mu sync.Mutex
+// OccupancyMap manages a set of submaps for one robot.
+// A new submap is created whenever the robot moves far enough from the current submap origin.
+type OccupancyMap struct {
+	CurrentPose Pose
+	submaps     []*Submap
+	active      *Submap
+	nextID      int
+	// Smoothed display position within the active submap (EMA, in submap cell coords).
+	// Prevents jitter from EKF noise snapping the crop window by 1 cell.
+	dispX, dispY float64
+	dispInit     bool
 }
 
-func NewGoSLAM() *GoSLAM {
-	return &GoSLAM{
-		Poses:        make([]Pose, 0),
-		GridRes:      0.01, // 1cm per cell
-		GlobalSize:   500,  // 5m x 5m global viewing area out of the box
-		Submaps:      make([]*Submap, 0),
-		SubmapRadius: 0.8, // build new submap every 0.8 meters
-		DistThresh:   0.05,
-		AngleThresh:  0.10,
-		CurrentPose:  Pose{0, 0, 0},
-		LastRawOdom:  Pose{0, 0, 0},
-		Initialized:  false,
-		PendingScan:  make([]RayPoint, 0),
-	}
+func NewOccupancyMap() *OccupancyMap {
+	return &OccupancyMap{}
 }
 
-// ProcessUpdate is the replacement for the Python match/update cycle
-func (s *GoSLAM) ProcessUpdate(ekfX, ekfY, ekfTheta float64, scan [][2]float64) image.Image {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	rawOdom := Pose{X: ekfX, Y: ekfY, Theta: ekfTheta}
-
-	if !s.Initialized {
-		s.CurrentPose = rawOdom
-		s.LastRawOdom = rawOdom
-		s.Initialized = true
-	}
-
-	// 1. Calculate relative movement from raw Odometry since last frame
-	deltaX := rawOdom.X - s.LastRawOdom.X
-	deltaY := rawOdom.Y - s.LastRawOdom.Y
-	deltaTheta := NormalizeAngle(rawOdom.Theta - s.LastRawOdom.Theta)
-
-	// Translate that movement into the robot's local frame
-	cosRaw := math.Cos(s.LastRawOdom.Theta)
-	sinRaw := math.Sin(s.LastRawOdom.Theta)
-	localDX := deltaX*cosRaw + deltaY*sinRaw
-	localDY := -deltaX*sinRaw + deltaY*cosRaw
-
-	// 2. Apply that pure relative local movement to our "corrected" SLAM Pose
-	cosSLAM := math.Cos(s.CurrentPose.Theta)
-	sinSLAM := math.Sin(s.CurrentPose.Theta)
-	s.CurrentPose.X += localDX*cosSLAM - localDY*sinSLAM
-	s.CurrentPose.Y += localDX*sinSLAM + localDY*cosSLAM
-	s.CurrentPose.Theta = NormalizeAngle(s.CurrentPose.Theta + deltaTheta)
-
-	s.LastRawOdom = rawOdom
-	estPose := s.CurrentPose
-
-	// Only append to Poses if it's the first pose or if the pose has changed
-	if len(s.Poses) == 0 || s.Poses[len(s.Poses)-1].X != estPose.X || s.Poses[len(s.Poses)-1].Y != estPose.Y || s.Poses[len(s.Poses)-1].Theta != estPose.Theta {
-		s.Poses = append(s.Poses, estPose)
-	}
-
-	// Accumulate rays continuously
-	for _, sc := range scan {
-		s.PendingScan = append(s.PendingScan, RayPoint{
-			RobotX:     estPose.X,
-			RobotY:     estPose.Y,
-			RobotTheta: estPose.Theta,
-			Angle:      sc[0],
-			Dist:       sc[1],
-		})
-	}
-
-	// Check if moved enough to process a scan update
-	distMoved := math.Hypot(estPose.X-s.LastIcpPose.X, estPose.Y-s.LastIcpPose.Y)
-	angleMoved := math.Abs(NormalizeAngle(estPose.Theta - s.LastIcpPose.Theta))
-
-	if distMoved >= s.DistThresh || angleMoved >= s.AngleThresh {
-		// 1. Gather all local point clouds from the pending string of scans
-		var localHits []Pose
-
-		for _, item := range s.PendingScan {
-			if item.Dist < 0.1 || item.Dist > 2.95 {
-				continue // Filter noise and max bounds
-			}
-			lx := item.Dist * math.Cos(item.Angle)
-			ly := item.Dist * math.Sin(item.Angle)
-			localHits = append(localHits, Pose{X: lx, Y: ly})
-		}
-
-		// 2. Map-to-Map Preferred: Skip the single-scan matching!
-		// Just trust the highly accurate Odometry to build the single submap.
-		correctedPose := estPose
-
-		// 2.5 Update the active tracking pose with the mathematically aligned matched pose
-		s.CurrentPose = correctedPose
-
-		// Overwrite the final visual position with the corrected one
-		if len(s.Poses) > 0 {
-			s.Poses[len(s.Poses)-1] = correctedPose
-		}
-
-		// 3. Process the adjusted raycasts for the occupancy grid
-		var freeSpace []Pose
-		var hitSpace []Pose
-
-		c := math.Cos(correctedPose.Theta)
-		sn := math.Sin(correctedPose.Theta)
-
-		for _, item := range s.PendingScan {
-			dist := item.Dist
-			if dist < 0.1 || dist > 5.0 {
-				continue
-			}
-
-			lx := dist * math.Cos(item.Angle)
-			ly := dist * math.Sin(item.Angle)
-
-			// Map local coords to global map coordinates using the *Corrected* Pose
-			gx := (lx*c - ly*sn) + correctedPose.X
-			gy := (lx*sn + ly*c) + correctedPose.Y
-
-			if dist < 2.95 {
-				hitSpace = append(hitSpace, Pose{X: gx, Y: gy})
-			}
-
-			// Raycast for free space using corrected origins
-			steps := int(dist / s.GridRes)
-			for i := 1; i < steps; i++ {
-				t := float64(i) / float64(steps)
-				fx := correctedPose.X + t*(gx-correctedPose.X)
-				fy := correctedPose.Y + t*(gy-correctedPose.Y)
-				freeSpace = append(freeSpace, Pose{X: fx, Y: fy})
-			}
-		}
-
-		s.updateOccupancyGrid(freeSpace, hitSpace)
-
-		// Reset pending scan and update anchor
-		s.PendingScan = make([]RayPoint, 0)
-		s.LastIcpPose = correctedPose
-	}
-
-	return s.renderGridImage()
+// SubmapCount returns the total number of submaps created so far.
+func (m *OccupancyMap) SubmapCount() int {
+	return len(m.submaps)
 }
 
-func (s *GoSLAM) updateOccupancyGrid(freeSpace []Pose, hitSpace []Pose) {
-	// Ensure we have an active submap
-	if s.ActiveSubmap == nil {
-		s.ActiveSubmap = NewSubmap(len(s.Submaps), s.LastIcpPose, 800) // 8m x 8m submap to fit 3m full sensor radius
+// ActiveSubmapID returns the ID of the currently active submap, or -1 if none.
+func (m *OccupancyMap) ActiveSubmapID() int {
+	if m.active == nil {
+		return -1
 	}
+	return m.active.ID
+}
 
-	// Update Log-Odds in Active Submap
-	for _, p := range freeSpace {
-		ix, iy, valid := s.ActiveSubmap.globalPosToLocalIdx(p.X, p.Y, s.GridRes)
-		if valid {
-			idx := iy*s.ActiveSubmap.GridSize + ix
-			// Reduce the free-space penalty.
-			// If it clears too fast, the sensor washes away good walls.
-			s.ActiveSubmap.Grid[idx] -= 0.1
-			if s.ActiveSubmap.Grid[idx] < -5.0 {
-				s.ActiveSubmap.Grid[idx] = -5.0
-			}
-		}
-	}
+// ProcessUpdate ingests one EKF pose + one scan frame.
+// Returns the rendered local map and, when a submap switch triggered a match,
+// a non-nil *Pose holding the corrected absolute robot pose (metres, radians)
+// to be forwarded to the robot's EKF.
+func (m *OccupancyMap) ProcessUpdate(ekfX, ekfY, ekfTheta float64, scan [][2]float64) (image.Image, *Pose) {
+	m.CurrentPose = Pose{X: ekfX, Y: ekfY, Theta: ekfTheta}
 
-	for _, p := range hitSpace {
-		ix, iy, valid := s.ActiveSubmap.globalPosToLocalIdx(p.X, p.Y, s.GridRes)
-		if valid {
-			// Make walls thicker (3x3 grid) to prevent sensor noise from washing them away
-			for kx := -1; kx <= 1; kx++ {
-				for ky := -1; ky <= 1; ky++ {
-					nx, ny := ix+kx, iy+ky
-					if nx >= 0 && nx < s.ActiveSubmap.GridSize && ny >= 0 && ny < s.ActiveSubmap.GridSize {
-						idx := ny*s.ActiveSubmap.GridSize + nx
-						val := 0.9
-						if kx != 0 || ky != 0 {
-							val = 0.5 // Neighbor cells get slightly less confidence
-						}
-						s.ActiveSubmap.Grid[idx] += val
-						if s.ActiveSubmap.Grid[idx] > 5.0 {
-							s.ActiveSubmap.Grid[idx] = 5.0
-						}
-					}
+	var correction *Pose
+	if m.active == nil {
+		m.switchSubmap() // first submap — no predecessor to match
+	} else {
+		dx := ekfX - m.active.Origin.X
+		dy := ekfY - m.active.Origin.Y
+		if math.Hypot(dx, dy) > SwitchDist {
+			corrX, corrY, corrTheta := m.switchSubmap()
+			if corrX != 0 || corrY != 0 || corrTheta != 0 {
+				correction = &Pose{
+					X:     ekfX + corrX,
+					Y:     ekfY + corrY,
+					Theta: ekfTheta + corrTheta,
 				}
 			}
 		}
 	}
 
-	s.ActiveSubmap.NumScans++
-
-	// Check if submap is "full" and we need to start a new one
-	dx := s.LastIcpPose.X - s.ActiveSubmap.OriginPose.X
-	dy := s.LastIcpPose.Y - s.ActiveSubmap.OriginPose.Y
-	distFromOrigin := math.Hypot(dx, dy)
-
-	if distFromOrigin >= s.SubmapRadius || s.ActiveSubmap.NumScans > 150 {
-		// Minimum Submap Health Check:
-		// Ensure this submap actually saw enough geometry to be worth saving.
-		// If the car drove through an empty field, don't save a blank map just because it traveled 2 meters.
-		solidVoxelCount := 0
-		for _, val := range s.ActiveSubmap.Grid {
-			if val > 1.0 { // Has definite geometry
-				solidVoxelCount++
-			}
-		}
-
-		// Only finalize if we have a decent amount of definite wall structure (e.g. 200 solid pixels)
-		// Otherwise, keep the submap open so it keeps collecting until it finds walls!
-		if solidVoxelCount > 200 {
-
-			// --- MAP-TO-MAP MATCHING: Snap the completed Submap to the PREVIOUS Submap ---
-			if len(s.Submaps) > 0 {
-				prevSm := s.Submaps[len(s.Submaps)-1]
-				pseudoHits := s.ActiveSubmap.extractHitsLocal()
-
-				if len(pseudoHits) > 20 {
-					// Swap temporarily
-					tempActive := s.ActiveSubmap
-					s.ActiveSubmap = prevSm
-
-					// Match the extracted walls against the previous submap
-					bestPose, bestScore := s.wideMatchScan(tempActive.OriginPose, pseudoHits)
-
-					s.ActiveSubmap = tempActive // restore
-
-					// If we found a good alignment, shift the current map and Odometry
-					if bestScore > float64(len(pseudoHits))*0.4 {
-						driftX := bestPose.X - s.ActiveSubmap.OriginPose.X
-						driftY := bestPose.Y - s.ActiveSubmap.OriginPose.Y
-						driftTheta := NormalizeAngle(bestPose.Theta - s.ActiveSubmap.OriginPose.Theta)
-
-						s.ActiveSubmap.OriginPose = bestPose
-						s.LastIcpPose.X += driftX
-						s.LastIcpPose.Y += driftY
-						s.LastIcpPose.Theta = NormalizeAngle(s.LastIcpPose.Theta + driftTheta)
-						s.CurrentPose.X += driftX
-						s.CurrentPose.Y += driftY
-						s.CurrentPose.Theta = NormalizeAngle(s.CurrentPose.Theta + driftTheta)
-					}
-				}
-			}
-
-			s.ActiveSubmap.Finished = true
-			s.Submaps = append(s.Submaps, s.ActiveSubmap)
-
-			// Attempt to detect and close loops every time we finish a submap!
-			// Wait slightly to ensure it doesn't overcorrect immediately
-			if len(s.Submaps) > 5 {
-				s.DetectAndCloseLoops()
-			}
-
-			s.ActiveSubmap = NewSubmap(len(s.Submaps), s.LastIcpPose, 800) // 8m x 8m
-		} else if s.ActiveSubmap.NumScans > 300 {
-			// Fallback: If it has zero geometry but has been scanning for 300 cycles (dead end / empty space),
-			// force a reset to prevent infinitely growing an un-matchable map.
-			s.ActiveSubmap = NewSubmap(len(s.Submaps), s.LastIcpPose, 800)
-		}
+	// EMA-smoothed display position in active submap cell space (absorbs EKF jitter)
+	const alpha = 0.4
+	ox, oy := m.active.Origin.X, m.active.Origin.Y
+	lxF := (ekfX-ox)/GridRes + SubHalf
+	lyF := float64(SubHalf) - (ekfY-oy)/GridRes
+	if !m.dispInit {
+		m.dispX, m.dispY = lxF, lyF
+		m.dispInit = true
+	} else {
+		m.dispX = alpha*lxF + (1-alpha)*m.dispX
+		m.dispY = alpha*lyF + (1-alpha)*m.dispY
 	}
+
+	// Raytrace each scan ray into the active submap
+	for _, pt := range scan {
+		angle, dist := pt[0], pt[1]
+		if dist < MinBuildDist || dist > MaxBuildDist {
+			continue
+		}
+		globalAngle := ekfTheta + angle
+		hitX := ekfX + dist*math.Cos(globalAngle)
+		hitY := ekfY + dist*math.Sin(globalAngle)
+		m.active.update(ekfX, ekfY, hitX, hitY, dist)
+	}
+
+	return m.renderLocal(m.active, m.dispX, m.dispY), correction
+}
+
+// RenderGlobal composites all submaps onto a single world-sized image.
+func (m *OccupancyMap) RenderGlobal() image.Image {
+	return m.renderGlobal()
+}
+
+// switchSubmap seals the current submap and starts a fresh one.
+// Runs sequential matching then loop closure on the outgoing submap (maximum data).
+// Returns the total pose correction (dx, dy, dTheta) so the caller can forward
+// it to the robot's EKF.
+func (m *OccupancyMap) switchSubmap() (corrX, corrY, corrTheta float64) {
+	if m.active != nil && m.active.wallCellCount() >= matchMinWallCells {
+		dx1, dy1, dt1 := m.tryMatchToPrev()
+		dx2, dy2, dt2 := m.tryLoopClosure()
+		corrX = dx1 + dx2
+		corrY = dy1 + dy2
+		corrTheta = dt1 + dt2
+	}
+
+	// Start next submap at the corrected current pose so mapping continues
+	// from the right position even before the robot receives the update.
+	correctedPose := Pose{
+		X:     m.CurrentPose.X + corrX,
+		Y:     m.CurrentPose.Y + corrY,
+		Theta: m.CurrentPose.Theta + corrTheta,
+	}
+	s := newSubmap(m.nextID, correctedPose)
+	m.nextID++
+	m.submaps = append(m.submaps, s)
+	m.active = s
+	m.dispInit = false
+	return
 }

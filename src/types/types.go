@@ -11,8 +11,8 @@ type AdvMsg struct {
 
 // CameraMsg represents a camera line segment reported by a camera module.
 type CameraMsg struct {
-	Id       int
-	IsDirect bool // True = Digital Tvilling
+	Id         int
+	IsViritual bool // True = Digital Tvilling
 
 	// Visualisering (Endepunkter i mm)
 	P1X, P1Y int
@@ -44,12 +44,14 @@ type RobotState struct {
 }
 
 type UpdateGui struct {
-	MultiRobot  []RobotState
-	Id2index    map[int]int
-	NewOpen     [][2]int
-	NewObstacle [][2]int
-	Lines       [][2]Point
-	SlamMapImg  image.Image
+	MultiRobot      []RobotState
+	Id2index        map[int]int
+	NewOpen         [][2]int
+	NewObstacle     [][2]int
+	Lines           [][2]Point
+	SlamMapImgs     map[int]image.Image // per-robot SLAM local map, keyed by robot ID
+	SlamGlobalImgs  map[int]image.Image // per-robot SLAM global composite, keyed by robot ID
+	SlamSubmapCount map[int]int         // number of submaps per robot
 }
 
 type Position struct {
@@ -84,7 +86,7 @@ type MapLine struct {
 	Count     int     // How many times have we seen this wall?
 }
 
-type CorrectionMsg struct {
+type PoseUpdateMsg struct {
 	Id    int
 	X     float64
 	Y     float64
