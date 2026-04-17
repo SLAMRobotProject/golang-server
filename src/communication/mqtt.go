@@ -7,6 +7,7 @@ import (
 	"golang-server/config"
 	"golang-server/log"
 	"golang-server/types"
+	util "golang-server/utilities"
 	"strconv"
 	"time"
 
@@ -51,22 +52,26 @@ var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err
 
 func ThreadMqttPublish(
 	client mqtt.Client,
-	chPublish <-chan [3]int,
+	chRobotCmd <-chan types.RobotCommand,
 ) {
 	prefixByte := []byte{2} //because the robot code expects a byte here
-	for msg := range chPublish {
+	for msg := range chRobotCmd {
 
 		buf := new(bytes.Buffer)
 		binary.Write(buf, binary.LittleEndian, prefixByte)
-		binary.Write(buf, binary.LittleEndian, int16(msg[1]))
-		binary.Write(buf, binary.LittleEndian, int16(msg[2]))
+		binary.Write(buf, binary.LittleEndian, int16(typesafeMm(msg.TargetPose.X)))
+		binary.Write(buf, binary.LittleEndian, int16(typesafeMm(msg.TargetPose.Y)))
 
-		token := client.Publish("v2/server/NRF_"+strconv.Itoa(msg[0])+"/cmd", 0, false, buf.Bytes())
+		token := client.Publish("v2/server/NRF_"+strconv.Itoa(msg.RobotID)+"/cmd", 0, false, buf.Bytes())
 		token.Wait()
 		time.Sleep(time.Second)
 
-		//logging is done in the different functions that writes to chPublish
+		//logging is done in the different functions that writes to chRobotCmd
 	}
+}
+
+func typesafeMm(m float64) int {
+	return util.MetresToMm(m)
 }
 
 func advMessageHandler(

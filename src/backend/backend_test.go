@@ -61,7 +61,7 @@ func TestAddLineToMap(t *testing.T) {
 	s := initFullSlamState()
 	id := 2
 	s.id2index[id] = len(s.multiRobot)
-	s.multiRobot = append(s.multiRobot, *initRobotState(0, 0, 90))
+	s.multiRobot = append(s.multiRobot, *initRobotState(Pose{X: 0, Y: 0, Theta: utilities.DegreesToRadians(90)}))
 
 	x1, y1 := 20, 20
 	x1Index, y1Index := calculateMapIndex(x1, y1)
@@ -96,7 +96,7 @@ func TestIrSensorDataAdd(t *testing.T) {
 	s := initFullSlamState()
 	id := 2
 	s.id2index[id] = len(s.multiRobot)
-	s.multiRobot = append(s.multiRobot, *initRobotState(0, 0, 90))
+	s.multiRobot = append(s.multiRobot, *initRobotState(Pose{X: 0, Y: 0, Theta: utilities.DegreesToRadians(90)}))
 
 	irX, irY := 500, 500 //written in milimeters (because of the robot code), while the map is in centimeters
 	s.addIrSensorData(id, irX, irY)

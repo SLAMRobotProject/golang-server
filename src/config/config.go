@@ -18,6 +18,12 @@ const IrSensorMaxDistance = 60 //cm
 // correctly in front of the robot.
 const CameraMountOffsetMM = 90
 
+// CameraNoHitRawMM is the raw DistanceMM value (before mount-offset correction)
+// at or above which the server treats a camera reading as "no obstacle detected".
+// Any reading >= this is converted to a no-hit free-space ray instead of a wall hit.
+// Set to the sensor's maximum reliable detection distance in mm.
+const CameraNoHitRawMM = 3000
+
 // GUI
 const GuiFrameRate = 30           //fps
 const MapMinimumDisplaySize = 400 //px

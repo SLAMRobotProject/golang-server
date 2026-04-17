@@ -64,12 +64,15 @@ func SubscribeCamera(client mqtt.Client, chCamera chan<- types.CameraMsg) {
 			return
 		}
 
-		// Build and send a dedicated CameraMsg
+		camObj := types.CameraObject{
+			StartMM: int(start),
+			WidthMM: int(width),
+			DistMM:  int(distance),
+		}
+
 		cam := types.CameraMsg{
-			Id:         int(identifier),
-			StartMM:    int(start),
-			WidthMM:    int(width),
-			DistanceMM: int(distance),
+			Id:  int(identifier),
+			Obj: camObj,
 		}
 		chCamera <- cam
 	}

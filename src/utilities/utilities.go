@@ -48,3 +48,47 @@ func BresenhamAlgorithm(x0, y0, x1, y1 int) [][]int {
 	}
 	return points
 }
+
+// Normalize the angle to be within the range of -π to π
+func NormalizeAngle(angle float64) float64 {
+
+	for angle > math.Pi {
+		angle -= 2 * math.Pi
+	}
+	for angle < -math.Pi {
+		angle += 2 * math.Pi
+	}
+	return angle
+}
+
+// Unit conversion helpers for clean handling of millimetres, centimetres, metres, degrees, and radians.
+
+// MmToMetres converts millimetres to metres.
+func MmToMetres(mm int) float64 {
+	return float64(mm) / 1000.0
+}
+
+// MetresToMm converts metres back to millimetres.
+func MetresToMm(m float64) int {
+	return int(math.Round(m * 1000.0))
+}
+
+// CmToMetres converts centimetres to metres.
+func CmToMetres(cm int) float64 {
+	return float64(cm) / 100.0
+}
+
+// MetresToCm converts metres back to centimetres.
+func MetresToCm(m float64) int {
+	return int(math.Round(m * 100.0))
+}
+
+// DegreesToRadians converts degrees (int) to radians.
+func DegreesToRadians(deg int) float64 {
+	return float64(deg) * math.Pi / 180.0
+}
+
+// RadiansToDegrees converts radians back to degrees (int).
+func RadiansToDegrees(rad float64) int {
+	return int(math.Round(rad * 180.0 / math.Pi))
+}

@@ -16,12 +16,6 @@ type digitalTwinJSONMsg struct {
 	X          int  `json:"X"`
 	Y          int  `json:"Y"`
 	Theta      int  `json:"Theta"`
-	P1X        int  `json:"P1X"`
-	P1Y        int  `json:"P1Y"`
-	P2X        int  `json:"P2X"`
-	P2Y        int  `json:"P2Y"`
-	RhoMM      int  `json:"RhoMM"`
-	AlphaMRad  int  `json:"AlphaMRad"`
 	StartMM    int  `json:"StartMM"`
 	WidthMM    int  `json:"WidthMM"`
 	DistanceMM int  `json:"DistanceMM"`
@@ -84,20 +78,21 @@ func handleTwinConnection(conn net.Conn, chCamera chan<- types.CameraMsg, chRece
 			chCamera <- types.CameraMsg{
 				Id:         msg.Id,
 				IsViritual: msg.IsViritual,
-				P1X:        msg.P1X, P1Y: msg.P1Y,
-				P2X: msg.P2X, P2Y: msg.P2Y,
-				RhoMM: msg.RhoMM, AlphaMRad: msg.AlphaMRad,
-				StartMM:    msg.StartMM,
-				WidthMM:    msg.WidthMM,
-				DistanceMM: msg.DistanceMM,
+				Obj: types.CameraObject{
+					StartMM: msg.StartMM,
+					WidthMM: msg.WidthMM,
+					DistMM:  msg.DistanceMM,
+				},
 			}
 		} else if msg.IsViritual {
 			chCamera <- types.CameraMsg{
 				Id:         msg.Id,
 				IsViritual: true,
-				P1X:        msg.P1X, P1Y: msg.P1Y,
-				P2X: msg.P2X, P2Y: msg.P2Y,
-				RhoMM: msg.RhoMM, AlphaMRad: msg.AlphaMRad,
+				Obj: types.CameraObject{
+					StartMM: msg.StartMM,
+					WidthMM: msg.WidthMM,
+					DistMM:  msg.DistanceMM,
+				},
 			}
 		} else {
 			chReceive <- types.AdvMsg{

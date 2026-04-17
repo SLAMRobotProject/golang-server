@@ -46,9 +46,10 @@ var (
 	slamRobotOptions []string
 
 	// SLAM global panel state
-	selectedGlobalRobotID  int = -1
-	slamGRobotSelect       *widget.Select
-	slamGRobotOptions      []string
+	selectedGlobalRobotID int = -1
+	slamGRobotSelect      *widget.Select
+	slamGRobotOptions     []string
+	slamGShowMatches      bool
 )
 
 func InitGui(chG2bCommand chan<- types.Command,
@@ -133,7 +134,10 @@ func InitGui(chG2bCommand chan<- types.Command,
 		fmt.Sscanf(s, "Robot %d", &selectedGlobalRobotID)
 	})
 	slamGRobotSelect.PlaceHolder = "Select robot"
-	slamGControls := container.NewHBox(slamGRobotSelect)
+	slamMatchCheck := widget.NewCheck("Show matches", func(v bool) {
+		slamGShowMatches = v
+	})
+	slamGControls := container.NewHBox(slamGRobotSelect, slamMatchCheck)
 	slamGlobalTab := container.NewBorder(slamGControls, nil, nil, nil, slamGCanvas)
 
 	mainTabs := container.NewAppTabs(
@@ -184,9 +188,16 @@ func ThreadGuiUpdate(
 
 				// SLAM Global — show selected robot's composited world map
 				gSelID := selectedGlobalRobotID
-				if img, ok := partialState.SlamGlobalImgs[gSelID]; ok && img != nil {
-					slamGCanvas.Image = img
-					slamGCanvas.Refresh()
+				if slamGShowMatches {
+					if img, ok := partialState.SlamGlobalDbgImgs[gSelID]; ok && img != nil {
+						slamGCanvas.Image = img
+						slamGCanvas.Refresh()
+					}
+				} else {
+					if img, ok := partialState.SlamGlobalImgs[gSelID]; ok && img != nil {
+						slamGCanvas.Image = img
+						slamGCanvas.Refresh()
+					}
 				}
 
 				redrawMap(mapImage, partialState.NewOpen, partialState.NewObstacle)

@@ -5,7 +5,7 @@ import (
 	"math"
 )
 
-func (s *fullSlamState) findClosestRobot(x, y int) int {
+func (s *BackendRuntimeState) findClosestRobot(x, y int) int {
 	//find the robot closest to the given point
 	minDistance := math.MaxFloat64
 	closestRobot := -1

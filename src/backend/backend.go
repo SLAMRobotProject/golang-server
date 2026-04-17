@@ -6,9 +6,7 @@ import (
 	"golang-server/log"
 	"golang-server/slam"
 	"golang-server/types"
-	"golang-server/utilities"
-	"image"
-	"math"
+	util "golang-server/utilities"
 	"strings"
 	"time"
 )
@@ -20,41 +18,17 @@ const (
 	mapObstacle                   //4
 )
 
-func initRobotState(x, y, theta int) *types.RobotState {
+func initRobotState(pose Pose) *types.RobotState {
+	x := util.MetresToCm(pose.X)
+	y := util.MetresToCm(pose.Y)
+	theta := util.RadiansToDegrees(pose.Theta)
 	return &types.RobotState{X: x, Y: y, Theta: theta, XInit: x, YInit: y, ThetaInit: theta}
-}
-
-type fullSlamState struct {
-	areaMap        [config.MapSize][config.MapSize]uint8
-	newObstacle    [][2]int //new since last gui update
-	newOpen        [][2]int //new since last gui update
-	multiRobot     []types.RobotState
-	id2index       map[int]int
-	visualLines    [][2]types.Point
-	slamMappers    map[int]*slam.OccupancyMap // one OccupancyMap per robot ID
-	slamMapImgs    map[int]image.Image        // latest local map image per robot ID
-	slamGlobalImgs map[int]image.Image        // latest global map image per robot ID
-}
-
-func initFullSlamState() *fullSlamState {
-	s := fullSlamState{}
-	for i := 0; i < config.MapSize; i++ {
-		for j := 0; j < config.MapSize; j++ {
-			s.areaMap[i][j] = mapUnknown
-		}
-	}
-	s.id2index = make(map[int]int)
-	s.slamMappers = make(map[int]*slam.OccupancyMap)
-	s.slamMapImgs = make(map[int]image.Image)
-	s.slamGlobalImgs = make(map[int]image.Image)
-
-	return &s
 }
 
 // The map is very large and sending it gives a warning. This only sends updates.
 
 func ThreadBackend(
-	chPublish chan<- [3]int,
+	chRobotCmd chan<- types.RobotCommand,
 	chReceive <-chan types.AdvMsg,
 	chCamera <-chan types.CameraMsg,
 	chPoseUpdate chan<- types.PoseUpdateMsg,
@@ -63,153 +37,162 @@ func ThreadBackend(
 	chG2bRobotInit <-chan [4]int,
 	chG2bCommand <-chan types.Command,
 ) {
-	var state *fullSlamState = initFullSlamState()
+	var state *BackendRuntimeState = initBackendRuntimeState()
 
 	prevMsg := types.AdvMsg{}
 	positionLogger := log.InitPositionLogger()
 	pendingInit := map[int]struct{}{}
 	guiUpdateTicker := time.NewTicker(time.Second / config.GuiFrameRate)
+	handleGuiTick := func() {
+		submapCounts := make(map[int]int, len(state.slamMappers))
+		for id, mapper := range state.slamMappers {
+			submapCounts[id] = mapper.SubmapCount()
+		}
+		chB2gUpdate <- types.UpdateGui{
+			MultiRobot:        state.multiRobot,
+			Id2index:          state.id2index,
+			NewOpen:           state.newOpen,
+			NewObstacle:       state.newObstacle,
+			Lines:             state.visualLines,
+			SlamMapImgs:       state.slamMapImgs,
+			SlamGlobalImgs:    state.slamGlobalImgs,
+			SlamGlobalDbgImgs: state.slamGlobalDbgImgs,
+			SlamSubmapCount:   submapCounts,
+		}
+		state.newOpen = [][2]int{}
+		state.newObstacle = [][2]int{}
+		state.visualLines = [][2]types.Point{}
+	}
+	handleCommand := func(command types.Command) bool {
+		id := command.Id
+		commandName := "manual"
+		if command.CommandType == types.AutomaticCommand {
+			id = state.findClosestRobot(command.X, command.Y)
+			if id == -1 {
+				// already logged in findClosestRobot()
+				return false
+			}
+			commandName = "automatic"
+		}
+		robot := state.getRobotObject(id)
+		if robot == nil {
+			return true
+		}
+		target := state.grid.CoordinatesToPose(command.X, command.Y)
+		chRobotCmd <- robot.NewRobotCommand(id, target)
+		log.GGeneralLogger.Println("Publishing ", commandName, " input to robot with ID: ", id, " x: ", command.X, " y: ", command.Y, ".")
+		return true
+	}
+	handleAdvMsg := func(msg types.AdvMsg) {
+		if _, exist := pendingInit[msg.Id]; exist {
+			// skip
+		} else if _, exist := state.id2index[msg.Id]; !exist {
+			pendingInit[msg.Id] = struct{}{}
+			chB2gRobotPendingInit <- msg.Id // Buffered channel, so it will not block.
+		} else {
+			index := state.id2index[msg.Id]
+			robot := state.getRobotObject(msg.Id)
+			if robot == nil {
+				return
+			}
+			robot.UpdateOdom(poseFromAdvMsg(msg))
+			state.multiRobot[index] = robot.ToState()
+
+			state.addIrSensorData(msg.Id, msg.Ir1x, msg.Ir1y)
+			state.addIrSensorData(msg.Id, msg.Ir2x, msg.Ir2y)
+			state.addIrSensorData(msg.Id, msg.Ir3x, msg.Ir3y)
+			state.addIrSensorData(msg.Id, msg.Ir4x, msg.Ir4y)
+
+			if msg.X != prevMsg.X || msg.Y != prevMsg.Y || msg.Theta != prevMsg.Theta {
+				current := robot.ToState()
+				positionLogger.Printf("%d %d %d %d\n", msg.Id, current.X, current.Y, current.Theta)
+			}
+		}
+		prevMsg = msg
+	}
+	handleCameraMsg := func(cam types.CameraMsg) {
+		if _, exist := state.id2index[cam.Id]; !exist {
+			return
+		}
+		mapper := state.slamMappers[cam.Id]
+		if mapper == nil {
+			state.visualLines = [][2]types.Point{}
+			return
+		}
+
+		robot := state.getRobotObject(cam.Id)
+		if robot == nil {
+			return
+		}
+		gX := robot.Current.X
+		gY := robot.Current.Y
+		gTheta := robot.Current.Theta
+
+		processSlamUpdate := func(sensorObservation types.CameraObject) {
+			img, correction := mapper.ProcessUpdate(gX, gY, gTheta, sensorObservation)
+			state.slamMapImgs[cam.Id] = img
+			state.slamGlobalImgs[cam.Id] = mapper.RenderGlobal()
+			state.slamGlobalDbgImgs[cam.Id] = mapper.RenderGlobalDebug()
+			if correction != nil {
+				if _, ok := state.applyRobotMapCorrection(cam.Id, Pose{X: correction.X, Y: correction.Y, Theta: correction.Theta}); ok {
+					//chPoseUpdate <- poseUpdate
+				}
+			}
+		}
+
+		if !cam.IsViritual {
+			state.addCameraSegment(cam.Id, cam.Obj.StartMM, cam.Obj.WidthMM, cam.Obj.DistMM)
+		}
+
+		var sensorObservation types.CameraObject
+		if cam.IsViritual {
+			localX, localY := robot.VirtualCameraWorldPointToLocal(cam.Obj.StartMM, cam.Obj.DistMM)
+			if localY > slam.MinBuildDist && localY < slam.MaxBuildDist {
+				halfWidthMM := util.MetresToMm(slam.GridRes)
+				sensorObservation = types.CameraObject{
+					DistMM:  util.MetresToMm(localY),
+					StartMM: util.MetresToMm(localX) - halfWidthMM,
+					WidthMM: 2 * halfWidthMM,
+				}
+			}
+		} else {
+			dist := cam.Obj.DistMM
+			if dist < config.CameraNoHitRawMM {
+				sensorObservation = types.CameraObject{
+					DistMM:  dist + config.CameraMountOffsetMM,
+					StartMM: cam.Obj.StartMM,
+					WidthMM: cam.Obj.WidthMM,
+				}
+			}
+		}
+		processSlamUpdate(sensorObservation)
+		state.visualLines = [][2]types.Point{}
+	}
+	handleRobotInit := func(init [4]int) {
+		id := init[0]
+		state.id2index[id] = len(state.multiRobot)
+		initialPose := Pose{X: util.CmToMetres(init[1]), Y: util.CmToMetres(init[2]), Theta: util.DegreesToRadians(init[3])}
+		state.robots[id] = NewRobot(initialPose)
+		state.multiRobot = append(state.multiRobot, state.robots[id].ToState())
+		state.slamMappers[id] = slam.NewOccupancyMap()
+		delete(pendingInit, id)
+	}
 
 	for {
 		select {
 		case <-guiUpdateTicker.C:
-			//update gui
-			// Build submap counts for gui display
-			submapCounts := make(map[int]int, len(state.slamMappers))
-			for id, mapper := range state.slamMappers {
-				submapCounts[id] = mapper.SubmapCount()
-			}
-			chB2gUpdate <- types.UpdateGui{
-				MultiRobot:      state.multiRobot,
-				Id2index:        state.id2index,
-				NewOpen:         state.newOpen,
-				NewObstacle:     state.newObstacle,
-				Lines:           state.visualLines,
-				SlamMapImgs:     state.slamMapImgs,
-				SlamGlobalImgs:  state.slamGlobalImgs,
-				SlamSubmapCount: submapCounts,
-			}
-			//reset newOpen and newObstacle and visualLines
-			state.newOpen = [][2]int{}
-			state.newObstacle = [][2]int{}
-			state.visualLines = [][2]types.Point{}
+			handleGuiTick()
 
 		case command := <-chG2bCommand:
-			switch command.CommandType {
-			case types.AutomaticCommand:
-				id := state.findClosestRobot(command.X, command.Y)
-				if id == -1 {
-					//already logged in findClosestRobot()
-					return
-				}
-				//convert to mm because robot uses mm, and rotate back from init to get robot body coordinates
-				robot := state.getRobot(id)
-				xRobotBody, yRobotBody := utilities.Rotate(float64(command.X-robot.XInit)*10, float64(command.Y-robot.YInit)*10, -float64(robot.ThetaInit))
-				chPublish <- [3]int{id, int(xRobotBody), int(yRobotBody)}
-				log.GGeneralLogger.Println("Publishing automatic input to robot with ID: ", command.Id, " x: ", command.X, " y: ", command.Y, ".")
-			case types.ManualCommand:
-				//convert to mm because robot uses mm, and rotate back from init to get robot body coordinates
-				robot := state.getRobot(command.Id)
-				xRobotBody, yRobotBody := utilities.Rotate(float64(command.X-robot.XInit)*10, float64(command.Y-robot.YInit)*10, -float64(robot.ThetaInit))
-				chPublish <- [3]int{command.Id, int(xRobotBody), int(yRobotBody)}
-				log.GGeneralLogger.Println("Publishing manual input to robot with ID: ", command.Id, " x: ", command.X, " y: ", command.Y, ".")
+			if !handleCommand(command) {
+				return
 			}
 		case msg := <-chReceive:
-			if _, exist := pendingInit[msg.Id]; exist {
-				//skip
-			} else if _, exist := state.id2index[msg.Id]; !exist {
-				pendingInit[msg.Id] = struct{}{}
-				chB2gRobotPendingInit <- msg.Id //Buffered channel, so it will not block.
-			} else {
-				//robot update
-				newX, newY := utilities.Rotate(float64(msg.X)/10.0, float64(msg.Y)/10.0, float64(state.getRobot(msg.Id).ThetaInit))
-				index := state.id2index[msg.Id]
-				state.multiRobot[index].X = int(newX) + state.getRobot(msg.Id).XInit
-				state.multiRobot[index].Y = int(newY) + state.getRobot(msg.Id).YInit
-				state.multiRobot[index].Theta = msg.Theta + state.getRobot(msg.Id).ThetaInit
-
-				//map update, dependent upon an updated robot
-				state.addIrSensorData(msg.Id, msg.Ir1x, msg.Ir1y)
-				state.addIrSensorData(msg.Id, msg.Ir2x, msg.Ir2y)
-				state.addIrSensorData(msg.Id, msg.Ir3x, msg.Ir3y)
-				state.addIrSensorData(msg.Id, msg.Ir4x, msg.Ir4y)
-				//log position
-				if msg.X != prevMsg.X || msg.Y != prevMsg.Y || msg.Theta != prevMsg.Theta {
-					positionLogger.Printf("%d %d %d %d\n", msg.Id, state.getRobot(msg.Id).X, state.getRobot(msg.Id).Y, state.getRobot(msg.Id).Theta)
-				}
-			}
-			prevMsg = msg
+			handleAdvMsg(msg)
 		case cam := <-chCamera:
-			if _, exist := state.id2index[cam.Id]; !exist {
-				continue
-			}
-			mapper := state.slamMappers[cam.Id]
-
-			if cam.IsViritual {
-				if mapper != nil {
-					robot := state.getRobot(cam.Id)
-					gX := float64(robot.X) / 100.0
-					gY := float64(robot.Y) / 100.0
-					gTheta := float64(robot.Theta) * math.Pi / 180.0
-
-					// Convert the single endpoint to a scan ray in robot body frame
-					p2xCm, p2yCm := utilities.Rotate(float64(cam.P2X)/10.0, float64(cam.P2Y)/10.0, float64(robot.ThetaInit))
-					p2xM := (p2xCm + float64(robot.XInit)) / 100.0
-					p2yM := (p2yCm + float64(robot.YInit)) / 100.0
-					dx := p2xM - gX
-					dy := p2yM - gY
-					c, s := math.Cos(-gTheta), math.Sin(-gTheta)
-					localX := dx*c - dy*s
-					localY := dx*s + dy*c
-					angle := math.Atan2(localY, localX)
-					dist := math.Hypot(localX, localY)
-
-					scan := [][2]float64{{angle, dist}}
-					img, correction := mapper.ProcessUpdate(gX, gY, gTheta, scan)
-					state.slamMapImgs[cam.Id] = img
-					state.slamGlobalImgs[cam.Id] = mapper.RenderGlobal()
-					if correction != nil {
-						chPoseUpdate <- types.PoseUpdateMsg{Id: cam.Id, X: correction.X, Y: correction.Y, Theta: correction.Theta}
-					}
-				}
-				state.visualLines = [][2]types.Point{}
-			} else {
-				state.addCameraSegment(cam.Id, cam.StartMM, cam.WidthMM, cam.DistanceMM)
-				if mapper != nil {
-					robot := state.getRobot(cam.Id)
-					gX := float64(robot.X) / 100.0
-					gY := float64(robot.Y) / 100.0
-					gTheta := float64(robot.Theta) * math.Pi / 180.0
-
-					// Sample the line segment into scan rays (forward=dist, lateral=start..start+width)
-					yLocal := float64(cam.DistanceMM+config.CameraMountOffsetMM) / 1000.0
-					widthM := float64(cam.WidthMM) / 1000.0
-					startXM := float64(cam.StartMM) / 1000.0
-					numPoints := int(math.Abs(widthM) / 0.05)
-					if numPoints < 2 {
-						numPoints = 2
-					}
-					scan := make([][2]float64, numPoints)
-					for i := 0; i < numPoints; i++ {
-						t := float64(i) / float64(numPoints-1)
-						xLocal := startXM + t*widthM
-						scan[i] = [2]float64{math.Atan2(xLocal, yLocal), math.Hypot(yLocal, xLocal)}
-					}
-					img, correction := mapper.ProcessUpdate(gX, gY, gTheta, scan)
-					state.slamMapImgs[cam.Id] = img
-					state.slamGlobalImgs[cam.Id] = mapper.RenderGlobal()
-					if correction != nil {
-						chPoseUpdate <- types.PoseUpdateMsg{Id: cam.Id, X: correction.X, Y: correction.Y, Theta: correction.Theta}
-					}
-				}
-				state.visualLines = [][2]types.Point{}
-			}
+			handleCameraMsg(cam)
 		case init := <-chG2bRobotInit:
-			id := init[0]
-			state.id2index[id] = len(state.multiRobot)
-			state.multiRobot = append(state.multiRobot, *initRobotState(init[1], init[2], init[3]))
-			state.slamMappers[id] = slam.NewOccupancyMap()
-			delete(pendingInit, id)
+			handleRobotInit(init)
 		}
 	}
 }
@@ -223,184 +206,4 @@ func formatCovarianceMatrix(matrix [5 * 5]float32) string {
 		sb.WriteString(fmt.Sprintf("%f", value))
 	}
 	return sb.String()
-}
-
-func (s *fullSlamState) setMapValue(x, y int, value uint8) {
-	s.areaMap[x][y] = value
-	switch value {
-	case mapOpen:
-		s.newOpen = append(s.newOpen, [2]int{x, y})
-	case mapObstacle:
-		s.newObstacle = append(s.newObstacle, [2]int{x, y})
-	}
-}
-
-func (s *fullSlamState) getRobot(id int) types.RobotState {
-	return s.multiRobot[s.id2index[id]]
-}
-
-func (s *fullSlamState) addIrSensorData(id, irX, irY int) {
-	xMap, yMap := s.transformIrSensorData(id, irX, irY)
-	s.addLineToMap(id, xMap, yMap)
-}
-
-func (s *fullSlamState) transformIrSensorData(id, xBodyFrame, yBodyFrame int) (int, int) {
-	// IR data is given in mm and it is relative to the body, so it must be scaled, rotated and transelated to the map.
-
-	//Must flip yBodyFrame, because the axis is flipped in the robot code.
-	yBodyFrame = -yBodyFrame
-
-	//rotate
-	theta := s.multiRobot[s.id2index[id]].Theta
-	xBodyFrameRotated, yBodyFrameRotated := utilities.Rotate(float64(xBodyFrame), float64(yBodyFrame), float64(theta))
-
-	//scale and transelate
-	xMap := math.Round(xBodyFrameRotated/10) + float64(s.multiRobot[s.id2index[id]].X)
-	yMap := math.Round(yBodyFrameRotated/10) + float64(s.multiRobot[s.id2index[id]].Y)
-
-	return int(xMap), int(yMap)
-}
-
-func (s *fullSlamState) addLineToMap(id, x1, y1 int) {
-	//x0, y0, x1, y1 is given in map coordinates. With origo as defined in the config.
-	x0 := s.getRobot(id).X
-	y0 := s.getRobot(id).Y
-
-	lineLength := math.Sqrt(math.Pow(float64(x0-x1), 2) + math.Pow(float64(y0-y1), 2))
-
-	var obstruction bool
-	if lineLength < config.IrSensorMaxDistance {
-		obstruction = true
-	} else {
-		obstruction = false
-
-		//shorten the line to config.IrSensorMaxDistance, needed for bresenham algorithm
-		scale := config.IrSensorMaxDistance / lineLength
-		x1 = x0 + int(scale*float64(x1-x0))
-		y1 = y0 + int(scale*float64(y1-y0))
-
-	}
-
-	//get map index values
-	x0Index, y0Index := calculateMapIndex(x0, y0)
-	x1Index, y1Index := calculateMapIndex(x1, y1)
-	//get values in map range
-	x1Index = min(max(x1Index, 0), config.MapSize-1)
-	y1Index = min(max(y1Index, 0), config.MapSize-1)
-	x0Index = min(max(x0Index, 0), config.MapSize-1)
-	y0Index = min(max(y0Index, 0), config.MapSize-1)
-
-	indexPoints := utilities.BresenhamAlgorithm(x0Index, y0Index, x1Index, y1Index)
-	for i := 0; i < len(indexPoints); i++ {
-		x := indexPoints[i][0]
-		y := indexPoints[i][1]
-		s.setMapValue(x, y, mapOpen)
-	}
-	if obstruction {
-		s.setMapValue(x1Index, y1Index, mapObstacle)
-	}
-}
-
-// addGlobalSegment receives finished global coordinates (cm) and updates the map
-func (s *fullSlamState) addGlobalSegment(robotID int, p1, p2 types.Point) {
-	x1Index, y1Index := calculateMapIndex(int(math.Round(float64(p1.X))), int(math.Round(float64(p1.Y))))
-	x2Index, y2Index := calculateMapIndex(int(math.Round(float64(p2.X))), int(math.Round(float64(p2.Y))))
-
-	x1Index = min(max(x1Index, 0), config.MapSize-1)
-	y1Index = min(max(y1Index, 0), config.MapSize-1)
-	x2Index = min(max(x2Index, 0), config.MapSize-1)
-	y2Index = min(max(y2Index, 0), config.MapSize-1)
-
-	// Find all pixels along the wall (Obstacles)
-	segmentPoints := utilities.BresenhamAlgorithm(x1Index, y1Index, x2Index, y2Index)
-
-	// Find the robot's position in map indices
-	robot := s.getRobot(robotID)
-	rxIndex, ryIndex := calculateMapIndex(robot.X, robot.Y)
-	rxIndex = min(max(rxIndex, 0), config.MapSize-1)
-	ryIndex = min(max(ryIndex, 0), config.MapSize-1)
-
-	// Update the map
-	for _, p := range segmentPoints {
-		sx := p[0]
-		sy := p[1]
-
-		s.setMapValue(sx, sy, mapObstacle)
-
-		lineToObs := utilities.BresenhamAlgorithm(rxIndex, ryIndex, sx, sy)
-
-		if len(lineToObs) > 1 {
-			for i := 0; i < len(lineToObs)-1; i++ {
-				lx := lineToObs[i][0]
-				ly := lineToObs[i][1]
-				s.setMapValue(lx, ly, mapOpen)
-			}
-		}
-	}
-}
-
-// addCameraSegment converts a camera line segment (given in mm in robot body frame)
-// into map indices and marks the segment cells as obstacles. It also marks
-// cells between the robot and each obstacle cell as open (free space).
-func (s *fullSlamState) addCameraSegment(id, startMM, widthMM, distanceMM int) {
-
-	// Adjust distance for camera mounting offset
-	adjDist := distanceMM + config.CameraMountOffsetMM
-
-	// mm to cm for map coordinates
-	x1Map, y1Map := int(startMM/10), int(adjDist/10)
-	x2Map, y2Map := int((startMM+widthMM)/10), int(adjDist/10)
-
-	// Get robot pose
-	robot := s.getRobot(id)
-	x_pos, y_pos, theta := robot.X, robot.Y, robot.Theta
-
-	// Rotate segment endpoints to map frame. Theta 90 equals no rotation
-	x1Rotated, y1Rotated := utilities.Rotate(float64(x1Map), float64(y1Map), float64(theta-90))
-	x2Rotated, y2Rotated := utilities.Rotate(float64(x2Map), float64(y2Map), float64(theta-90))
-
-	// Translate to map coordinates
-	x1Map = int(math.Round(x1Rotated)) + x_pos
-	y1Map = int(math.Round(y1Rotated)) + y_pos
-	x2Map = int(math.Round(x2Rotated)) + x_pos
-	y2Map = int(math.Round(y2Rotated)) + y_pos
-
-	// get indices and clamp to map
-	x1Index, y1Index := calculateMapIndex(x1Map, y1Map)
-	x2Index, y2Index := calculateMapIndex(x2Map, y2Map)
-	x1Index = min(max(x1Index, 0), config.MapSize-1)
-	y1Index = min(max(y1Index, 0), config.MapSize-1)
-	x2Index = min(max(x2Index, 0), config.MapSize-1)
-	y2Index = min(max(y2Index, 0), config.MapSize-1)
-
-	// get the segment cells
-	segmentPoints := utilities.BresenhamAlgorithm(x1Index, y1Index, x2Index, y2Index)
-
-	// robot index
-	rxIndex, ryIndex := calculateMapIndex(robot.X, robot.Y)
-	rxIndex = min(max(rxIndex, 0), config.MapSize-1)
-	ryIndex = min(max(ryIndex, 0), config.MapSize-1)
-
-	for _, p := range segmentPoints {
-		sx := p[0]
-		sy := p[1]
-
-		// Bare marker som hinder hvis distansen er under maks range (f.eks. for å la kameraet melde "tomt rom")
-		if adjDist < 2900 {
-			s.setMapValue(sx, sy, mapObstacle)
-		} // mark free space between robot and obstacle (exclude obstacle cell itself)
-		lineToObs := utilities.BresenhamAlgorithm(rxIndex, ryIndex, sx, sy)
-		if len(lineToObs) > 1 {
-			for i := 0; i < len(lineToObs)-1; i++ {
-				lx := lineToObs[i][0]
-				ly := lineToObs[i][1]
-				s.setMapValue(lx, ly, mapOpen)
-			}
-		}
-	}
-}
-
-func calculateMapIndex(x, y int) (int, int) {
-	//Input is given in map coordinates (i.e. robot positions) with normal axis and origo as defined in the config.
-	return config.MapCenterX + x, config.MapCenterY - y
 }

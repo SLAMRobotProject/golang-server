@@ -12,7 +12,7 @@ func main() {
 	//Most channels are buffered for efficiency.
 
 	//only backend can publish and receive
-	chPublish := make(chan [3]int, 3)
+	chRobotCmd := make(chan types.RobotCommand, 3)
 	chReceive := make(chan types.AdvMsg, 3)
 	chCamera := make(chan types.CameraMsg, 16)
 
@@ -26,7 +26,7 @@ func main() {
 	chPoseUpdate := make(chan types.PoseUpdateMsg, 3)
 
 	go backend.ThreadBackend(
-		chPublish,
+		chRobotCmd,
 		chReceive,
 		chCamera,
 		chPoseUpdate,
@@ -40,7 +40,7 @@ func main() {
 	communication.Subscribe(client, chReceive)
 	communication.SubscribeCamera(client, chCamera)
 	go communication.StartDigitalTwinTCPServer("localhost:9000", chCamera, chReceive, chG2bRobotInit, chPoseUpdate)
-	go communication.ThreadMqttPublish(client, chPublish)
+	go communication.ThreadMqttPublish(client, chRobotCmd)
 
 	//go slam.ThreadSlam(chReceive, chCamera, nil)
 

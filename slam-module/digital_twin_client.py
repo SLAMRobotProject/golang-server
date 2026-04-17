@@ -4,7 +4,7 @@ import time
 import numpy as np
 import threading
 import argparse
-from robot import RobotDigitalTwin # Importerer robotmodellen fra det gamle oppsettet
+from robot import RobotDigitalTwin, normalize_angle
 from controller import HybridController
 
 class DigitalTwinClient:
@@ -24,9 +24,11 @@ class DigitalTwinClient:
         self.start_pose = [-0.5, -0.5, 0.0]
         self.robot = RobotDigitalTwin(start_pose=self.start_pose, true_walls=self.TRUE_WALLS)
         
-        # Vi lagrer en separat posisjon ("slam_pose") for at Go-serverens 
-        # korreksjoner ikke skal ødelegge den rå odometrien (ekf.x).
-        self.slam_pose = np.copy(self.robot.ekf.x)
+        # TF-style frame tree:
+        # odom -> base_link comes from EKF
+        # map -> odom is updated from SLAM corrections
+        self.map_to_odom = np.array([0.0, 0.0, 0.0], dtype=float)
+        self.pose_lock = threading.Lock()
 
         self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
@@ -55,6 +57,26 @@ class DigitalTwinClient:
         ]
         self.current_wp_idx = 0
 
+    @staticmethod
+    def compose_pose(a, b):
+        ax, ay, ath = a
+        bx, by, bth = b
+        ca = np.cos(ath)
+        sa = np.sin(ath)
+        x = ax + ca * bx - sa * by
+        y = ay + sa * bx + ca * by
+        th = normalize_angle(ath + bth)
+        return np.array([x, y, th], dtype=float)
+
+    @staticmethod
+    def inverse_pose(p):
+        x, y, th = p
+        c = np.cos(th)
+        s = np.sin(th)
+        inv_x = -(c * x + s * y)
+        inv_y = s * x - c * y
+        return np.array([inv_x, inv_y, normalize_angle(-th)], dtype=float)
+
     def listen_for_pose_updates(self):
         f = self.conn.makefile('r')
         while self.running:
@@ -64,11 +86,16 @@ class DigitalTwinClient:
                     break
                 data = json.loads(line)
                 if data.get("type") == "pose_update":
-                    # Oppdaterer SLAM posisjonen i stedet for den rå EKF-en.
-                    # Dette forhindrer en "feedback loop" som får roboten til å kjøre i sirkler.
-                    self.slam_pose[0] = data["x"]
-                    self.slam_pose[1] = data["y"]
-                    self.slam_pose[2] = data["theta"]
+                    # SLAM sender en korrigert pose i map-frame.
+                    # Vi oppdaterer kun map->odom-transformen og lar EKF være ren odometri.
+                    with self.pose_lock:
+                        odom_pose = self.robot.ekf.x[:3].copy()
+                        map_pose = np.array([
+                            data["x"],
+                            data["y"],
+                            normalize_angle(data["theta"]),
+                        ], dtype=float)
+                        self.map_to_odom = self.compose_pose(map_pose, self.inverse_pose(odom_pose))
             except Exception as e:
                 print(f"Listener error: {e}")
                 break
@@ -79,12 +106,16 @@ class DigitalTwinClient:
             # 1. Hent neste waypoint
             target_wp = self.waypoints[self.current_wp_idx]
 
-            # 2. Hent rå odometri fra EKF
-            ekf_pose = self.robot.ekf.x[:3].flatten()
+            # 2. Hent rå odometri fra EKF og komponer korrigert map-pose.
+            with self.pose_lock:
+                ekf_pose = self.robot.ekf.x[:3].copy()
+                map_to_odom = self.map_to_odom.copy()
 
-            # Fallback: hold slam_pose synkronisert med EKF når ingen SLAM-korreksjon er mottatt.
-            # Korreksjonstrådene vil overskrive dette når en ekte korrigert pose ankommer.
-            self.slam_pose[:3] = ekf_pose
+            slam_pose = self.compose_pose(map_to_odom, ekf_pose)
+
+            # Controller should follow the map-corrected pose, while EKF remains odom-only.
+            with self.pose_lock:
+                self.slam_pose = slam_pose.copy()
 
             dt = 0.01
 
@@ -92,7 +123,7 @@ class DigitalTwinClient:
             # Vi bruker slam_pose for styringen, så den navigerer etter kartet
             try:
                 omega_l, omega_r, is_done = self.controller.get_wheel_speeds(
-                    current_pose=self.slam_pose[:3].flatten(),
+                    current_pose=slam_pose,
                     target_pose=target_wp,
                     dt=dt
                 )
@@ -167,8 +198,11 @@ class DigitalTwinClient:
                     is_empty_space = all(p[2] >= 2.95 for p in seg)
 
                     if is_empty_space:
-                        # For "tomt rom" tvinger vi avstanden til 3000 for at Go-serveren ikke skal tegne en vegg
-                        distance_mm = 3000
+                        # Send beyond MaxBuildDist so Go treats this as a no-hit ray
+                        # (clears free space up to MaxBuildDist, marks no wall).
+                        # 3000 mm was wrong: after +90 mm mount offset it became 3090 mm
+                        # which is inside the hit threshold and created ghost walls.
+                        distance_mm = 4000
                     else:
                         # FYSISK KORREKT KAMERA: Det gir kun 1 avstand («closest object straight in front»)
                         min_y = min(p[1] for p in seg)
@@ -179,9 +213,6 @@ class DigitalTwinClient:
                         "Id": self.robot_id,
                         "IsDirect": False,
                         "IsCamera": True,
-                        "P1X": 0, "P1Y": 0,
-                        "P2X": 0, "P2Y": 0,
-                        "RhoMM": 0, "AlphaMRad": 0, 
                         "StartMM": int(np.round(min_x * 1000)),
                         "WidthMM": int(np.round((max_x - min_x) * 1000)),
                         "DistanceMM": distance_mm
