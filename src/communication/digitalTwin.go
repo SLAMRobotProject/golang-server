@@ -7,6 +7,7 @@ import (
 	"golang-server/log"
 	"golang-server/types"
 	"net"
+	"sync"
 )
 
 type digitalTwinJSONMsg struct {
@@ -21,15 +22,35 @@ type digitalTwinJSONMsg struct {
 	DistanceMM int  `json:"DistanceMM"`
 }
 
-func StartDigitalTwinTCPServer(port string, chCamera chan<- types.CameraMsg, chReceive chan<- types.AdvMsg, chG2bRobotInit chan<- [4]int, chPoseUpdate <-chan types.PoseUpdateMsg) {
+func StartDigitalTwinTCPServer(port string, chCamera chan<- types.CameraMsg, chRobotTelemetry chan<- types.RobotTelemetryMsg, chG2bRobotInit chan<- [4]int, chVirtualTarget <-chan types.VirtualTargetMsg, chB2gVirtualPending chan<- int) {
 	listener, err := net.Listen("tcp", port)
 	if err != nil {
-		log.GGeneralLogger.Printf("Kunne ikke starte TCP server pÃ¥ %s: %v", port, err)
+		log.GGeneralLogger.Printf("Kunne ikke starte TCP server på %s: %v", port, err)
 		return
 	}
 	defer listener.Close()
 
-	fmt.Printf("Digital Twin TCP-server lytter pÃ¥ %s\n", port)
+	fmt.Printf("Digital Twin TCP-server lytter på %s\n", port)
+
+	// connChans maps robot ID -> per-connection send channel.
+	connChans := make(map[int]chan string)
+	var connMu sync.Mutex
+
+	// Fan out chVirtualTarget to the matching per-connection channel.
+	go func() {
+		for msg := range chVirtualTarget {
+			connMu.Lock()
+			ch, ok := connChans[msg.Id]
+			connMu.Unlock()
+			if ok {
+				jsonStr := fmt.Sprintf(`{"type":"target","x":%f,"y":%f}`+"\n", msg.X, msg.Y)
+				select {
+				case ch <- jsonStr:
+				default:
+				}
+			}
+		}
+	}()
 
 	for {
 		conn, err := listener.Accept()
@@ -40,23 +61,16 @@ func StartDigitalTwinTCPServer(port string, chCamera chan<- types.CameraMsg, chR
 
 		fmt.Println("Digital Twin koblet til!")
 
-		// Start a thread purely to send pose updates to this TCP connection
-		go func(c net.Conn) {
-			for poseUpdate := range chPoseUpdate {
-				jsonStr := fmt.Sprintf(`{"type":"pose_update","x":%f,"y":%f,"theta":%f}`+"\n", poseUpdate.X, poseUpdate.Y, poseUpdate.Theta)
-				c.Write([]byte(jsonStr))
-			}
-		}(conn)
-
-		go handleTwinConnection(conn, chCamera, chReceive, chG2bRobotInit)
+		go handleTwinConnection(conn, chCamera, chRobotTelemetry, chG2bRobotInit, connChans, &connMu, chB2gVirtualPending)
 	}
 }
 
-func handleTwinConnection(conn net.Conn, chCamera chan<- types.CameraMsg, chReceive chan<- types.AdvMsg, chG2bRobotInit chan<- [4]int) {
+func handleTwinConnection(conn net.Conn, chCamera chan<- types.CameraMsg, chRobotTelemetry chan<- types.RobotTelemetryMsg, chG2bRobotInit chan<- [4]int, connChans map[int]chan string, connMu *sync.Mutex, chB2gVirtualPending chan<- int) {
 	defer conn.Close()
 
 	scanner := bufio.NewScanner(conn)
 
+	var robotID int
 	initialized := false
 
 	for scanner.Scan() {
@@ -68,8 +82,29 @@ func handleTwinConnection(conn net.Conn, chCamera chan<- types.CameraMsg, chRece
 		}
 
 		if !initialized {
-			// Initialize at 0,0 since backend.go automatically Offsets from map center
-			chG2bRobotInit <- [4]int{msg.Id, 0, 0, 0}
+			robotID = msg.Id
+			// Initialize at 0,0 since backend.go automatically offsets from map center.
+			//chG2bRobotInit <- [4]int{msg.Id, 0, 0, 0}
+
+			// Register a send channel for this robot so virtual targets can reach it.
+			sendCh := make(chan string, 4)
+			connMu.Lock()
+			connChans[robotID] = sendCh
+			connMu.Unlock()
+
+			// Writer goroutine: drains sendCh and writes to the connection.
+			go func(c net.Conn, ch <-chan string) {
+				for s := range ch {
+					c.Write([]byte(s))
+				}
+			}(conn, sendCh)
+
+			// Notify the GUI so it can show an "Add controls" button for this twin.
+			select {
+			case chB2gVirtualPending <- robotID:
+			default:
+			}
+
 			initialized = true
 		}
 
@@ -95,12 +130,22 @@ func handleTwinConnection(conn net.Conn, chCamera chan<- types.CameraMsg, chRece
 				},
 			}
 		} else {
-			chReceive <- types.AdvMsg{
+			chRobotTelemetry <- types.RobotTelemetryMsg{
 				Id:    msg.Id,
 				X:     msg.X,
 				Y:     msg.Y,
 				Theta: msg.Theta,
 			}
 		}
+	}
+
+	// Clean up on disconnect.
+	if initialized {
+		connMu.Lock()
+		if ch, ok := connChans[robotID]; ok {
+			close(ch)
+			delete(connChans, robotID)
+		}
+		connMu.Unlock()
 	}
 }

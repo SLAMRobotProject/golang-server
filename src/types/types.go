@@ -5,7 +5,7 @@ import "image"
 //This package contains types that are used by multiple packages.
 //Generally they are used by channels to communicate between packages.
 
-type AdvMsg struct {
+type RobotTelemetryMsg struct {
 	Id, X, Y, Theta, Ir1x, Ir1y, Ir2x, Ir2y, Ir3x, Ir3y, Ir4x, Ir4y int
 }
 
@@ -60,13 +60,6 @@ type SlamData struct {
 	Position Pose2D
 }
 
-type PoseUpdateMsg struct {
-	Id    int
-	X     float64
-	Y     float64
-	Theta float64
-}
-
 // Pose2D represents a planar pose (metres/radians).
 type Pose2D struct {
 	X, Y, Theta float64
@@ -76,4 +69,10 @@ type Pose2D struct {
 type RobotCommand struct {
 	RobotID    int
 	TargetPose Pose2D
+}
+
+// VirtualTargetMsg tells a digital twin to drive to a position in odom frame.
+type VirtualTargetMsg struct {
+	Id   int
+	X, Y float64 // odom frame, metres
 }

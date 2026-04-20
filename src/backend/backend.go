@@ -1,209 +1,241 @@
 package backend
 
 import (
-	"fmt"
+	"golang-server/backend/pose"
+	"golang-server/backend/robot"
 	"golang-server/config"
 	"golang-server/log"
 	"golang-server/slam"
 	"golang-server/types"
 	util "golang-server/utilities"
-	"strings"
+	stdlog "log"
+	"sync"
 	"time"
 )
 
-// using binary flags to represent the map to allow bitwise operations
-const (
-	mapOpen     uint8 = 1 << iota //1
-	mapUnknown                    //2
-	mapObstacle                   //4
-)
+// BackendEngine is the main struct for the backend, containing channels and state.
+type BackendEngine struct {
+	runtimeState *BackendRuntimeState
+	runtimeMap   *MapRuntimeState
 
-func initRobotState(pose Pose) *types.RobotState {
-	x := util.MetresToCm(pose.X)
-	y := util.MetresToCm(pose.Y)
-	theta := util.RadiansToDegrees(pose.Theta)
-	return &types.RobotState{X: x, Y: y, Theta: theta, XInit: x, YInit: y, ThetaInit: theta}
+	chRobotCmd            chan<- types.RobotCommand
+	chRobotTelemetry      <-chan types.RobotTelemetryMsg
+	chCamera              <-chan types.CameraMsg
+	chB2gRobotPendingInit chan<- int
+	chB2gUpdate           chan<- types.UpdateGui
+	chG2bRobotInit        <-chan [4]int
+	chG2bCommand          <-chan types.Command
+	chVirtualTarget       chan<- types.VirtualTargetMsg
+
+	prevMsg         types.RobotTelemetryMsg
+	pendingInit     map[int]struct{}
+	positionLogger  *stdlog.Logger
+	guiUpdateTicker *time.Ticker
 }
 
-// The map is very large and sending it gives a warning. This only sends updates.
+// BackendRuntimeState stores mutable backend data shared by handlers.
+type BackendRuntimeState struct {
+	mu                 sync.RWMutex
+	runtimeMultiRobots []*robot.Robot
+	runtimeMap         MapRuntimeState
+}
 
-func ThreadBackend(
+func initBackendRuntimeState() *BackendRuntimeState {
+	return &BackendRuntimeState{
+		runtimeMultiRobots: make([]*robot.Robot, 0),
+		runtimeMap:         initMapRuntimeState(),
+	}
+}
+
+// Main loop of the backend engine, handling all incoming messages and commands.
+func (e *BackendEngine) Start() {
+	for {
+		select {
+		case <-e.guiUpdateTicker.C:
+			e.handleGuiTick()
+
+		case command := <-e.chG2bCommand:
+			if !e.handleCommand(command) {
+				return
+			}
+		case msg := <-e.chRobotTelemetry:
+			e.handleAdvMsg(msg)
+		case cam := <-e.chCamera:
+			e.handleCameraMsg(cam)
+		case init := <-e.chG2bRobotInit:
+			e.handleRobotInit(init)
+		}
+	}
+}
+
+func RunBackend(
 	chRobotCmd chan<- types.RobotCommand,
-	chReceive <-chan types.AdvMsg,
+	chRobotTelemetry <-chan types.RobotTelemetryMsg,
 	chCamera <-chan types.CameraMsg,
-	chPoseUpdate chan<- types.PoseUpdateMsg,
 	chB2gRobotPendingInit chan<- int,
 	chB2gUpdate chan<- types.UpdateGui,
 	chG2bRobotInit <-chan [4]int,
 	chG2bCommand <-chan types.Command,
+	chVirtualTarget chan<- types.VirtualTargetMsg,
+	chBackendState chan<- *BackendRuntimeState,
 ) {
-	var state *BackendRuntimeState = initBackendRuntimeState()
+	runtimeState := initBackendRuntimeState()
 
-	prevMsg := types.AdvMsg{}
-	positionLogger := log.InitPositionLogger()
-	pendingInit := map[int]struct{}{}
-	guiUpdateTicker := time.NewTicker(time.Second / config.GuiFrameRate)
-	handleGuiTick := func() {
-		submapCounts := make(map[int]int, len(state.slamMappers))
-		for id, mapper := range state.slamMappers {
-			submapCounts[id] = mapper.SubmapCount()
-		}
-		chB2gUpdate <- types.UpdateGui{
-			MultiRobot:        state.multiRobot,
-			Id2index:          state.id2index,
-			NewOpen:           state.newOpen,
-			NewObstacle:       state.newObstacle,
-			Lines:             state.visualLines,
-			SlamMapImgs:       state.slamMapImgs,
-			SlamGlobalImgs:    state.slamGlobalImgs,
-			SlamGlobalDbgImgs: state.slamGlobalDbgImgs,
-			SlamSubmapCount:   submapCounts,
-		}
-		state.newOpen = [][2]int{}
-		state.newObstacle = [][2]int{}
-		state.visualLines = [][2]types.Point{}
-	}
-	handleCommand := func(command types.Command) bool {
-		id := command.Id
-		commandName := "manual"
-		if command.CommandType == types.AutomaticCommand {
-			id = state.findClosestRobot(command.X, command.Y)
-			if id == -1 {
-				// already logged in findClosestRobot()
-				return false
-			}
-			commandName = "automatic"
-		}
-		robot := state.getRobotObject(id)
-		if robot == nil {
-			return true
-		}
-		target := state.grid.CoordinatesToPose(command.X, command.Y)
-		chRobotCmd <- robot.NewRobotCommand(id, target)
-		log.GGeneralLogger.Println("Publishing ", commandName, " input to robot with ID: ", id, " x: ", command.X, " y: ", command.Y, ".")
-		return true
-	}
-	handleAdvMsg := func(msg types.AdvMsg) {
-		if _, exist := pendingInit[msg.Id]; exist {
-			// skip
-		} else if _, exist := state.id2index[msg.Id]; !exist {
-			pendingInit[msg.Id] = struct{}{}
-			chB2gRobotPendingInit <- msg.Id // Buffered channel, so it will not block.
-		} else {
-			index := state.id2index[msg.Id]
-			robot := state.getRobotObject(msg.Id)
-			if robot == nil {
-				return
-			}
-			robot.UpdateOdom(poseFromAdvMsg(msg))
-			state.multiRobot[index] = robot.ToState()
-
-			state.addIrSensorData(msg.Id, msg.Ir1x, msg.Ir1y)
-			state.addIrSensorData(msg.Id, msg.Ir2x, msg.Ir2y)
-			state.addIrSensorData(msg.Id, msg.Ir3x, msg.Ir3y)
-			state.addIrSensorData(msg.Id, msg.Ir4x, msg.Ir4y)
-
-			if msg.X != prevMsg.X || msg.Y != prevMsg.Y || msg.Theta != prevMsg.Theta {
-				current := robot.ToState()
-				positionLogger.Printf("%d %d %d %d\n", msg.Id, current.X, current.Y, current.Theta)
-			}
-		}
-		prevMsg = msg
-	}
-	handleCameraMsg := func(cam types.CameraMsg) {
-		if _, exist := state.id2index[cam.Id]; !exist {
-			return
-		}
-		mapper := state.slamMappers[cam.Id]
-		if mapper == nil {
-			state.visualLines = [][2]types.Point{}
-			return
-		}
-
-		robot := state.getRobotObject(cam.Id)
-		if robot == nil {
-			return
-		}
-		gX := robot.Current.X
-		gY := robot.Current.Y
-		gTheta := robot.Current.Theta
-
-		processSlamUpdate := func(sensorObservation types.CameraObject) {
-			img, correction := mapper.ProcessUpdate(gX, gY, gTheta, sensorObservation)
-			state.slamMapImgs[cam.Id] = img
-			state.slamGlobalImgs[cam.Id] = mapper.RenderGlobal()
-			state.slamGlobalDbgImgs[cam.Id] = mapper.RenderGlobalDebug()
-			if correction != nil {
-				if _, ok := state.applyRobotMapCorrection(cam.Id, Pose{X: correction.X, Y: correction.Y, Theta: correction.Theta}); ok {
-					//chPoseUpdate <- poseUpdate
-				}
-			}
-		}
-
-		if !cam.IsViritual {
-			state.addCameraSegment(cam.Id, cam.Obj.StartMM, cam.Obj.WidthMM, cam.Obj.DistMM)
-		}
-
-		var sensorObservation types.CameraObject
-		if cam.IsViritual {
-			localX, localY := robot.VirtualCameraWorldPointToLocal(cam.Obj.StartMM, cam.Obj.DistMM)
-			if localY > slam.MinBuildDist && localY < slam.MaxBuildDist {
-				halfWidthMM := util.MetresToMm(slam.GridRes)
-				sensorObservation = types.CameraObject{
-					DistMM:  util.MetresToMm(localY),
-					StartMM: util.MetresToMm(localX) - halfWidthMM,
-					WidthMM: 2 * halfWidthMM,
-				}
-			}
-		} else {
-			dist := cam.Obj.DistMM
-			if dist < config.CameraNoHitRawMM {
-				sensorObservation = types.CameraObject{
-					DistMM:  dist + config.CameraMountOffsetMM,
-					StartMM: cam.Obj.StartMM,
-					WidthMM: cam.Obj.WidthMM,
-				}
-			}
-		}
-		processSlamUpdate(sensorObservation)
-		state.visualLines = [][2]types.Point{}
-	}
-	handleRobotInit := func(init [4]int) {
-		id := init[0]
-		state.id2index[id] = len(state.multiRobot)
-		initialPose := Pose{X: util.CmToMetres(init[1]), Y: util.CmToMetres(init[2]), Theta: util.DegreesToRadians(init[3])}
-		state.robots[id] = NewRobot(initialPose)
-		state.multiRobot = append(state.multiRobot, state.robots[id].ToState())
-		state.slamMappers[id] = slam.NewOccupancyMap()
-		delete(pendingInit, id)
+	engine := &BackendEngine{
+		runtimeState:          runtimeState,
+		runtimeMap:            &runtimeState.runtimeMap,
+		chRobotCmd:            chRobotCmd,
+		chRobotTelemetry:      chRobotTelemetry,
+		chCamera:              chCamera,
+		chB2gRobotPendingInit: chB2gRobotPendingInit,
+		chB2gUpdate:           chB2gUpdate,
+		chG2bRobotInit:        chG2bRobotInit,
+		chG2bCommand:          chG2bCommand,
+		chVirtualTarget:       chVirtualTarget,
+		pendingInit:           map[int]struct{}{},
+		positionLogger:        log.InitPositionLogger(),
+		guiUpdateTicker:       time.NewTicker(time.Second / config.GuiFrameRate),
 	}
 
-	for {
-		select {
-		case <-guiUpdateTicker.C:
-			handleGuiTick()
-
-		case command := <-chG2bCommand:
-			if !handleCommand(command) {
-				return
-			}
-		case msg := <-chReceive:
-			handleAdvMsg(msg)
-		case cam := <-chCamera:
-			handleCameraMsg(cam)
-		case init := <-chG2bRobotInit:
-			handleRobotInit(init)
-		}
-	}
+	chBackendState <- engine.runtimeState
+	engine.Start()
 }
 
-func formatCovarianceMatrix(matrix [5 * 5]float32) string {
-	var sb strings.Builder
-	for i, value := range matrix {
-		if i > 0 {
-			sb.WriteString(",")
-		}
-		sb.WriteString(fmt.Sprintf("%f", value))
+// ================================================
+// Handlers -
+// ================================================
+
+func (e *BackendEngine) handleGuiTick() {
+	multiRobot, id2index := e.runtimeState.snapshotRobotStates()
+	submapCounts := make(map[int]int, len(e.runtimeMap.slamMappers))
+	for id, mapper := range e.runtimeMap.slamMappers {
+		submapCounts[id] = mapper.SubmapCount()
 	}
-	return sb.String()
+	e.chB2gUpdate <- types.UpdateGui{
+		MultiRobot:        multiRobot,
+		Id2index:          id2index,
+		NewOpen:           e.runtimeMap.newOpen,
+		NewObstacle:       e.runtimeMap.newObstacle,
+		Lines:             e.runtimeMap.visualLines,
+		SlamMapImgs:       e.runtimeMap.slamMapImgs,
+		SlamGlobalImgs:    e.runtimeMap.slamGlobalImgs,
+		SlamGlobalDbgImgs: e.runtimeMap.slamGlobalDbgImgs,
+		SlamSubmapCount:   submapCounts,
+	}
+	e.runtimeMap.newOpen = [][2]int{}
+	e.runtimeMap.newObstacle = [][2]int{}
+	e.runtimeMap.visualLines = [][2]types.Point{}
+}
+
+func (e *BackendEngine) handleCommand(command types.Command) bool {
+	id := command.Id
+	commandName := "manual"
+	if command.CommandType == types.AutomaticCommand {
+		id = e.runtimeState.findClosestRobot(command.X, command.Y)
+		if id == -1 {
+			return false
+		}
+		commandName = "automatic"
+	}
+	r := e.runtimeState.getRobotObject(id)
+	if r == nil {
+		return true
+	}
+	target := e.runtimeMap.grid.CoordinatesToPose(command.X, command.Y)
+	e.chRobotCmd <- r.NewRobotCommand(id, target)
+	odomTarget := r.MapTargetToOdomTarget(target)
+	select {
+	case e.chVirtualTarget <- types.VirtualTargetMsg{Id: id, X: odomTarget.X, Y: odomTarget.Y}:
+	default:
+	}
+	log.GGeneralLogger.Println("Publishing ", commandName, " input to robot with ID: ", id, " x: ", command.X, " y: ", command.Y, ".")
+	return true
+}
+
+func (e *BackendEngine) handleAdvMsg(msg types.RobotTelemetryMsg) {
+	if _, exist := e.pendingInit[msg.Id]; exist {
+		// skip
+	} else if _, exist := e.runtimeState.indexByID(msg.Id); !exist {
+		e.pendingInit[msg.Id] = struct{}{}
+		e.chB2gRobotPendingInit <- msg.Id
+	} else {
+		e.runtimeState.updateRobotOdom(msg.Id, pose.FromRobotTelemetry(msg))
+
+		e.runtimeState.addIrSensorData(msg.Id, msg.Ir1x, msg.Ir1y)
+		e.runtimeState.addIrSensorData(msg.Id, msg.Ir2x, msg.Ir2y)
+		e.runtimeState.addIrSensorData(msg.Id, msg.Ir3x, msg.Ir3y)
+		e.runtimeState.addIrSensorData(msg.Id, msg.Ir4x, msg.Ir4y)
+
+		r := e.runtimeState.getRobotObject(msg.Id)
+		if r != nil && (msg.X != e.prevMsg.X || msg.Y != e.prevMsg.Y || msg.Theta != e.prevMsg.Theta) {
+			current := r.ToState()
+			e.positionLogger.Printf("%d %d %d %d\n", msg.Id, current.X, current.Y, current.Theta)
+		}
+	}
+	e.prevMsg = msg
+}
+
+func (e *BackendEngine) handleCameraMsg(cam types.CameraMsg) {
+	if _, exist := e.runtimeState.indexByID(cam.Id); !exist {
+		return
+	}
+	mapper := e.runtimeMap.slamMappers[cam.Id]
+	if mapper == nil {
+		e.runtimeMap.visualLines = [][2]types.Point{}
+		return
+	}
+
+	r := e.runtimeState.getRobotObject(cam.Id)
+	if r == nil {
+		return
+	}
+	gX := r.Current.X
+	gY := r.Current.Y
+	gTheta := r.Current.Theta
+
+	processSlamUpdate := func(sensorObservation types.CameraObject) {
+		img, correction := mapper.ProcessUpdate(gX, gY, gTheta, sensorObservation)
+		e.runtimeMap.slamMapImgs[cam.Id] = img
+		e.runtimeMap.slamGlobalImgs[cam.Id] = mapper.RenderGlobal()
+		e.runtimeMap.slamGlobalDbgImgs[cam.Id] = mapper.RenderGlobalDebug()
+		if correction != nil {
+			e.runtimeState.applyRobotMapCorrection(cam.Id, pose.Pose{X: correction.X, Y: correction.Y, Theta: correction.Theta})
+		}
+	}
+
+	if !cam.IsViritual {
+		e.runtimeState.addCameraSegment(cam.Id, cam.Obj.StartMM, cam.Obj.WidthMM, cam.Obj.DistMM)
+	}
+
+	var sensorObservation types.CameraObject
+	if cam.IsViritual {
+		localX, localY := r.VirtualCameraWorldPointToLocal(cam.Obj.StartMM, cam.Obj.DistMM)
+		if localY > slam.MinBuildDist && localY < slam.MaxBuildDist {
+			halfWidthMM := util.MetresToMm(slam.GridRes)
+			sensorObservation = types.CameraObject{
+				DistMM:  util.MetresToMm(localY),
+				StartMM: util.MetresToMm(localX) - halfWidthMM,
+				WidthMM: 2 * halfWidthMM,
+			}
+		}
+	} else {
+		dist := cam.Obj.DistMM
+		if dist < config.CameraNoHitRawMM {
+			sensorObservation = types.CameraObject{
+				DistMM:  dist + config.CameraMountOffsetMM,
+				StartMM: cam.Obj.StartMM,
+				WidthMM: cam.Obj.WidthMM,
+			}
+		}
+	}
+	processSlamUpdate(sensorObservation)
+	e.runtimeMap.visualLines = [][2]types.Point{}
+}
+
+func (e *BackendEngine) handleRobotInit(init [4]int) {
+	id := init[0]
+	initialPose := pose.Pose{X: util.CmToMetres(init[1]), Y: util.CmToMetres(init[2]), Theta: util.DegreesToRadians(init[3])}
+	e.runtimeState.addRuntimeRobot(robot.NewRobot(id, initialPose))
+	e.runtimeMap.slamMappers[id] = slam.NewOccupancyMap()
+	delete(e.pendingInit, id)
 }

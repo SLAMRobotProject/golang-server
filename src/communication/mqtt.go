@@ -75,7 +75,7 @@ func typesafeMm(m float64) int {
 }
 
 func advMessageHandler(
-	chIncomingMsg chan<- types.AdvMsg,
+	chIncomingMsg chan<- types.RobotTelemetryMsg,
 ) mqtt.MessageHandler {
 	return func(client mqtt.Client, msg mqtt.Message) {
 		payload := msg.Payload()
@@ -96,7 +96,7 @@ func advMessageHandler(
 			binary.Read(reader, binary.LittleEndian, &m.ir4y)
 			binary.Read(reader, binary.LittleEndian, &m.valid) //valid is not used in the robot code
 
-			newMsg := types.AdvMsg{
+			newMsg := types.RobotTelemetryMsg{
 				Id:    int(m.id),
 				X:     int(m.x),
 				Y:     int(m.y),
@@ -125,7 +125,7 @@ func advMessageHandler(
 
 func Subscribe(
 	client mqtt.Client,
-	chIncomingMsg chan<- types.AdvMsg,
+	chIncomingMsg chan<- types.RobotTelemetryMsg,
 ) {
 	topic := "v2/robot/NRF_5/adv"
 	token := client.Subscribe(topic, 1, advMessageHandler(chIncomingMsg))

@@ -1,6 +1,10 @@
 package utilities
 
-import "math"
+import (
+	"fmt"
+	"math"
+	"strings"
+)
 
 func Rotate(inputX, inputY, theta float64) (float64, float64) {
 	//rotate the point around origo. Theta is given in degrees.
@@ -91,4 +95,16 @@ func DegreesToRadians(deg int) float64 {
 // RadiansToDegrees converts radians back to degrees (int).
 func RadiansToDegrees(rad float64) int {
 	return int(math.Round(rad * 180.0 / math.Pi))
+}
+
+// FormatCovarianceMatrix formats a 5x5 covariance matrix as comma-separated float values.
+func FormatCovarianceMatrix(matrix [5 * 5]float32) string {
+	var sb strings.Builder
+	for i, value := range matrix {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(fmt.Sprintf("%f", value))
+	}
+	return sb.String()
 }

@@ -1,6 +1,9 @@
 package backend
 
 import (
+	"golang-server/backend/grid"
+	"golang-server/backend/pose"
+	"golang-server/backend/robot"
 	"golang-server/config"
 	"golang-server/utilities"
 	"math"
@@ -58,33 +61,33 @@ func TestBresenhamAlgorithm(t *testing.T) {
 }
 
 func TestAddLineToMap(t *testing.T) {
-	s := initFullSlamState()
+	s := initBackendRuntimeState()
 	id := 2
-	s.id2index[id] = len(s.multiRobot)
-	s.multiRobot = append(s.multiRobot, *initRobotState(Pose{X: 0, Y: 0, Theta: utilities.DegreesToRadians(90)}))
+	initialPose := pose.Pose{X: 0, Y: 0, Theta: utilities.DegreesToRadians(90)}
+	s.runtimeMultiRobots = append(s.runtimeMultiRobots, robot.NewRobot(id, initialPose))
 
 	x1, y1 := 20, 20
-	x1Index, y1Index := calculateMapIndex(x1, y1)
+	x1Index, y1Index := grid.NewGridMap().MapIndex(x1, y1)
 	s.addLineToMap(id, x1, y1)
-	if s.areaMap[x1Index][y1Index] != mapObstacle {
+	if s.runtimeMap.areaMap[x1Index][y1Index] != mapObstacle {
 		t.Errorf("Function addLineToMap did not add obstacle to map correctly.")
 	}
 
 	x1, y1 = -20, -20
-	x1ModIdx, y1ModIdx := calculateMapIndex(x1+1, y1+1) //modified to test the point before the obstacle
+	x1ModIdx, y1ModIdx := grid.NewGridMap().MapIndex(x1+1, y1+1) //modified to test the point before the obstacle
 	s.addLineToMap(id, x1, y1)
-	if s.areaMap[x1ModIdx][y1ModIdx] != mapOpen {
+	if s.runtimeMap.areaMap[x1ModIdx][y1ModIdx] != mapOpen {
 		t.Errorf("Function addLineToMap did not add line to map correctly.")
 	}
 
 	x1, y1 = 40, 40
-	x1Index, y1Index = calculateMapIndex(x1, y1)
-	if s.areaMap[x1Index][y1Index] == mapUnknown {
+	x1Index, y1Index = grid.NewGridMap().MapIndex(x1, y1)
+	if s.runtimeMap.areaMap[x1Index][y1Index] == mapUnknown {
 		s.addLineToMap(id, x1, y1)
-		x1ModIdx, y1ModIdx = calculateMapIndex(21, 21) //modified to respect a max distance of 30
-		if math.Sqrt(float64(x1*x1+y1*y1)) > config.IrSensorMaxDistance && s.areaMap[x1Index][y1Index] != mapUnknown {
+		x1ModIdx, y1ModIdx = grid.NewGridMap().MapIndex(21, 21) //modified to respect a max distance of 30
+		if math.Sqrt(float64(x1*x1+y1*y1)) > config.IrSensorMaxDistance && s.runtimeMap.areaMap[x1Index][y1Index] != mapUnknown {
 			t.Errorf("Function addLineToMap did not respect the max distance.")
-		} else if s.areaMap[x1ModIdx][y1ModIdx] != mapOpen {
+		} else if s.runtimeMap.areaMap[x1ModIdx][y1ModIdx] != mapOpen {
 			t.Errorf("Function addLineToMap did not add line to map correctly.")
 		}
 	} else {
@@ -93,31 +96,32 @@ func TestAddLineToMap(t *testing.T) {
 }
 
 func TestIrSensorDataAdd(t *testing.T) {
-	s := initFullSlamState()
+	s := initBackendRuntimeState()
 	id := 2
-	s.id2index[id] = len(s.multiRobot)
-	s.multiRobot = append(s.multiRobot, *initRobotState(Pose{X: 0, Y: 0, Theta: utilities.DegreesToRadians(90)}))
+	initialPose := pose.Pose{X: 0, Y: 0, Theta: utilities.DegreesToRadians(90)}
+	s.runtimeMultiRobots = append(s.runtimeMultiRobots, robot.NewRobot(id, initialPose))
 
 	irX, irY := 500, 500 //written in milimeters (because of the robot code), while the map is in centimeters
 	s.addIrSensorData(id, irX, irY)
-	if s.areaMap[config.MapCenterX+21][config.MapCenterY-21] != mapOpen {
+	if s.runtimeMap.areaMap[config.MapCenterX+21][config.MapCenterY-21] != mapOpen {
 		t.Errorf("Function addIrSensorData did not add line to map correctly.#1")
 	}
 
 	irX, irY = -200, -200
 	s.addIrSensorData(id, irX, irY)
-	if s.areaMap[config.MapCenterX-19][config.MapCenterY+19] != mapOpen {
+	if s.runtimeMap.areaMap[config.MapCenterX-19][config.MapCenterY+19] != mapOpen {
 		t.Errorf("Function addIrSensorData did not add line to map correctly.#2")
 	}
-	if s.areaMap[config.MapCenterX-20][config.MapCenterY+20] != mapObstacle {
-		print(s.areaMap[config.MapCenterX-20][config.MapCenterY+20])
+	if s.runtimeMap.areaMap[config.MapCenterX-20][config.MapCenterY+20] != mapObstacle {
+		print(s.runtimeMap.areaMap[config.MapCenterX-20][config.MapCenterY+20])
 		t.Errorf("Function addIrSensorData did not add obstruction.")
 	}
 
 	irX, irY = 1000, 1000
-	s.multiRobot[s.id2index[id]].X = -150
+	idx, _ := s.indexByID(id)
+	s.runtimeMultiRobots[idx].Current.X = utilities.CmToMetres(-150)
 	s.addIrSensorData(id, irX, irY)
-	if s.areaMap[config.MapCenterX+21][config.MapCenterY+150-21] == mapOpen {
+	if s.runtimeMap.areaMap[config.MapCenterX+21][config.MapCenterY+150-21] == mapOpen {
 		t.Errorf("Function addIrSensorData did not respect the max distance. #3")
 	}
 }
