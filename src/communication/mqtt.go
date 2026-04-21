@@ -46,7 +46,7 @@ type advMsgUnpacking struct {
 	ir           [4]coordinate
 	covMatrix    [25]float32 //not used currently, but needed to keep the byte size correct
 	valid        uint8
-	iRTowerAngle uint8 //not used currently, but needed to keep the byte size correct
+	irTowerAngle uint8 //not used currently, but needed to keep the byte size correct
 }
 
 var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
@@ -120,7 +120,7 @@ func advMessageHandler(
 			binary.Read(reader, binary.LittleEndian, &m.ir[3].y)
 			binary.Read(reader, binary.LittleEndian, &m.covMatrix)
 			binary.Read(reader, binary.LittleEndian, &m.valid)
-			binary.Read(reader, binary.LittleEndian, &m.iRTowerAngle)
+			binary.Read(reader, binary.LittleEndian, &m.irTowerAngle)
 
 			// Debug: Print the raw payload in hex format
 			// fmt.Print("Payload hex: ")
@@ -133,18 +133,19 @@ func advMessageHandler(
 			// fmt.Println()
 
 			newMsg := types.AdvMsg{
-				Id:    int(m.id),
-				X:     int(m.x),
-				Y:     int(m.y),
-				Theta: int(m.theta),
-				Ir1x:  int(m.ir[0].x),
-				Ir1y:  int(m.ir[0].y),
-				Ir2x:  int(m.ir[1].x),
-				Ir2y:  int(m.ir[1].y),
-				Ir3x:  int(m.ir[2].x),
-				Ir3y:  int(m.ir[2].y),
-				Ir4x:  int(m.ir[3].x),
-				Ir4y:  int(m.ir[3].y),
+				Id:           int(m.id),
+				X:            int(m.x),
+				Y:            int(m.y),
+				Theta:        int(m.theta),
+				Ir1x:         int(m.ir[0].x),
+				Ir1y:         int(m.ir[0].y),
+				Ir2x:         int(m.ir[1].x),
+				Ir2y:         int(m.ir[1].y),
+				Ir3x:         int(m.ir[2].x),
+				Ir3y:         int(m.ir[2].y),
+				Ir4x:         int(m.ir[3].x),
+				Ir4y:         int(m.ir[3].y),
+				IrTowerAngle: int(m.irTowerAngle),
 			}
 
 			chIncomingMsg <- newMsg

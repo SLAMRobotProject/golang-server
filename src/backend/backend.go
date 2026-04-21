@@ -105,6 +105,7 @@ func ThreadBackend(
 				state.multiRobot[index].X = int(newX) + state.getRobot(msg.Id).XInit
 				state.multiRobot[index].Y = int(newY) + state.getRobot(msg.Id).YInit
 				state.multiRobot[index].Theta = msg.Theta + state.getRobot(msg.Id).ThetaInit
+				state.multiRobot[index].IrTowerAngle = msg.IrTowerAngle
 
 				// Her kommer oppdateringer fra roboten inn. Få den til å sende inn
 				// Kovariansmatrisen fra Kalmanfilteret også slik at det kan
@@ -241,11 +242,11 @@ func (s *fullSlamState) addCameraSegment(id, startMM, widthMM, distanceMM int) {
 
 	// Get robot pose
 	robot := s.getRobot(id)
-	x_pos, y_pos, theta := robot.X, robot.Y, robot.Theta
+	x_pos, y_pos, theta, ir_tower_angle := robot.X, robot.Y, robot.Theta, robot.IrTowerAngle
 
 	// Rotate segment endpoints to map frame. Theta 90 equals no rotation
-	x1Rotated, y1Rotated := utilities.Rotate(float64(x1Map), float64(y1Map), float64(theta-90))
-	x2Rotated, y2Rotated := utilities.Rotate(float64(x2Map), float64(y2Map), float64(theta-90))
+	x1Rotated, y1Rotated := utilities.Rotate(float64(x1Map), float64(y1Map), float64(theta+ir_tower_angle-90))
+	x2Rotated, y2Rotated := utilities.Rotate(float64(x2Map), float64(y2Map), float64(theta+ir_tower_angle-90))
 
 	// Translate to map coordinates
 	x1Map = int(math.Round(x1Rotated)) + x_pos

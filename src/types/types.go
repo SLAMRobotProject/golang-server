@@ -16,6 +16,7 @@ type AdvMsg struct {
 	Ir3y                     int
 	Ir4x                     int
 	Ir4y                     int
+	IrTowerAngle             int
 	Valid                    uint8
 	CovarianceMatrixNumber1  float32
 	CovarianceMatrixNumber2  float32
@@ -65,6 +66,7 @@ type Command struct {
 type RobotState struct {
 	X, Y, Theta             int //cm, degrees
 	XInit, YInit, ThetaInit int
+	IrTowerAngle            int // degrees 0-180, for camera mapping
 }
 
 type UpdateGui struct {
