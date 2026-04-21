@@ -46,7 +46,7 @@ type advMsgUnpacking struct {
 	ir           [4]coordinate
 	covMatrix    [25]float32 //not used currently, but needed to keep the byte size correct
 	valid        uint8
-	iRTowerAngle uint8
+	iRTowerAngle uint8 //not used currently, but needed to keep the byte size correct
 }
 
 var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
