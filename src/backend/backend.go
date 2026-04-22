@@ -236,17 +236,17 @@ func (s *fullSlamState) addCameraSegment(id, startMM, widthMM, distanceMM int) {
 	// Adjust distance for camera mounting offset
 	adjDist := distanceMM + config.CameraMountOffsetMM
 
-	// mm to cm for map coordinates
-	x1Map, y1Map := int(startMM/10), int(adjDist/10)
-	x2Map, y2Map := int((startMM+widthMM)/10), int(adjDist/10)
+	// mm to cm for map coordinates (camera upside down)
+	x1Map, y1Map := int(-(startMM+widthMM)/10), int(adjDist/10)
+	x2Map, y2Map := int(-(startMM)/10), int(adjDist/10)
 
 	// Get robot pose
 	robot := s.getRobot(id)
 	x_pos, y_pos, theta, ir_tower_angle := robot.X, robot.Y, robot.Theta, robot.IrTowerAngle
 
-	// Rotate segment endpoints to map frame. Theta 90 equals no rotation
-	x1Rotated, y1Rotated := utilities.Rotate(float64(x1Map), float64(y1Map), float64(theta+ir_tower_angle-90))
-	x2Rotated, y2Rotated := utilities.Rotate(float64(x2Map), float64(y2Map), float64(theta+ir_tower_angle-90))
+	// Rotate segment endpoints to map frame. Theta 90 and angle 90 equals no rotation
+	x1Rotated, y1Rotated := utilities.Rotate(float64(x1Map), float64(y1Map), float64(theta+ir_tower_angle-180))
+	x2Rotated, y2Rotated := utilities.Rotate(float64(x2Map), float64(y2Map), float64(theta+ir_tower_angle-180))
 
 	// Translate to map coordinates
 	x1Map = int(math.Round(x1Rotated)) + x_pos
