@@ -23,10 +23,11 @@ type MapRuntimeState struct {
 	newOpen           [][2]int
 	grid              grid.GridMap
 	visualLines       [][2]types.Point
-	slamMappers       map[int]*slam.OccupancyMap
-	slamMapImgs       map[int]image.Image
-	slamGlobalImgs    map[int]image.Image
-	slamGlobalDbgImgs map[int]image.Image
+	slamMapper        *slam.OccupancyMap     // single global map shared by all robots
+	slamRobotIDs      map[int]struct{}       // set of registered robot IDs
+	slamMapImgs       map[int]image.Image    // per-robot local SLAM view
+	slamGlobalImgs    map[int]image.Image    // per-robot slot for the shared global image
+	slamGlobalDbgImgs map[int]image.Image    // per-robot slot for the shared debug image
 }
 
 func initMapRuntimeState() MapRuntimeState {
@@ -37,7 +38,8 @@ func initMapRuntimeState() MapRuntimeState {
 		}
 	}
 	m.grid = grid.NewGridMap()
-	m.slamMappers = make(map[int]*slam.OccupancyMap)
+	m.slamMapper = slam.NewOccupancyMap()
+	m.slamRobotIDs = make(map[int]struct{})
 	m.slamMapImgs = make(map[int]image.Image)
 	m.slamGlobalImgs = make(map[int]image.Image)
 	m.slamGlobalDbgImgs = make(map[int]image.Image)

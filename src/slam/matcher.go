@@ -9,64 +9,110 @@ import (
 )
 
 const (
+	// ==========================================
 	// Core gates
-	// Minimum wall cells required before attempting any match.
-	matchMinWallCells = 120
-	// Number of finished submaps merged into the sequential reference.
+	// ==========================================
+	// Minimum number of wall cells a submap needs before attempting to match it.
+	matchMinWallCells = 50
+	// How many historic submaps to stitch together to form the "reference map" for sequential matching.
 	seqRefCount = 2
-	// Minimum acceptance scores.
+	// The minimum average likelihood score (0.0 to 1.0) needed to accept a sequential frame-to-frame match.
 	matchMinAvgScore = 0.40
-	loopMinAvgScore  = 0.35
+	// The minimum average likelihood score (0.0 to 1.0) needed to accept a Loop Closure match.
+	loopMinAvgScore = 0.38
 
+	// ==========================================
 	// Loop candidate filtering
-	// Skip near-adjacent submaps to avoid redundant closures.
-	loopMinSubmapGap = 3
-	// Only test anchors close enough to plausibly overlap.
-	loopMaxOriginDist = 3.5
+	// ==========================================
+	// The minimum number of submaps that must have been created between the 'anchor' and the current submap to attempt a loop closure. (Also acts as cooldown length).
+	loopMinSubmapGap = 4
+	// Maximum physical distance (metres) between the current submap origin and historic anchor origin to even test it.
+	loopMaxOriginDist = 2.0
 
-	// Ambiguity rejection (top-2 hypotheses).
-	loopHypoMinScoreGap    = 0.01
-	loopHypoMinScoreRatio  = 1.05
-	loopHypoPoseCloseXY    = 0.20  // metres
-	loopHypoPoseCloseTheta = 0.070 // radians (~4°)
+	// ==========================================
+	// Ambiguity rejection (Checking the top-2 hypotheses to prevent false positive match)
+	// ==========================================
+	// If the difference between the best and second-best NDT score is smaller than this, the match might be ambiguous.
+	loopHypoMinScoreGap = 0.01
+	// The ratio check for comparing the best score to the second-best score.
+	loopHypoMinScoreRatio = 1.05
+	// Distance physically separating two confusing hypotheses (metres). If they are further apart than this and score is close, REJECT.
+	loopHypoPoseCloseXY = 0.20
+	// Angle separating two confusing hypotheses (radians).
+	loopHypoPoseCloseTheta = 0.070
 
-	// Geometric validation sampling budget.
+	// Maximum points used when checking the geometry of a loop closure to keep CPU load low.
 	loopGeomMaxWalls = 220
 
-	// NDT core model
-	ndtGridCellSize   = 0.25 // metres
-	ndtMinPointsCell  = 3
-	ndtMaxIterations  = 20
-	ndtConvergeTol    = 1e-4
+	// ==========================================
+	// NDT (Normal Distributions Transform) model settings
+	// ==========================================
+	// The bin size of the probability grid in metres. A smaller grid means higher precision but tighter search requirements.
+	ndtGridCellSize = 0.25
+	// Minimum number of lidar points required in a grid cell to calculate standard deviation and mean.
+	ndtMinPointsCell = 3
+	// Optimizer (BFGS) limits for fine-tuning a match locally.
+	ndtMaxIterations = 20
+	// Stopping criteria for the BFGS optimizer (gradient tolerance).
+	ndtConvergeTol = 1e-4
+	// Small value added to the Diagonal of covariance matrices to avoid dividing by zero on perfectly straight walls.
 	ndtRegularization = 1e-3
 
-	// Sequential NDT search (default + retry/wide).
-	ndtSeqCoarseXY        = 0.45
-	ndtSeqCoarseTheta     = 0.20
-	ndtSeqCoarseStepXY    = 0.10
+	// ==========================================
+	// Sequential NDT parameter grid search (Coarse search before optimizer)
+	// ==========================================
+	// Search radius in X and Y (± metres).
+	ndtSeqCoarseXY = 0.45
+	// Search radius in Theta (± radians).
+	ndtSeqCoarseTheta = 0.14
+	// Search steps in X and Y (metres).
+	ndtSeqCoarseStepXY = 0.10
+	// Search steps in Theta (radians).
 	ndtSeqCoarseStepTheta = 0.035
-	ndtSeqCoarseXYWide    = 1.20
-	ndtSeqCoarseThetaWide = 0.52
 
-	// Loop NDT search and drift-based expansion limits.
-	ndtLoopCoarseXY        = 1.20
-	ndtLoopCoarseTheta     = 0.52
-	ndtLoopCoarseStepXY    = 0.20
+	// ==========================================
+	// Loop Closure NDT parameter grid search
+	// ==========================================
+	// Initial search radius (± metres) for Loop Closure.
+	ndtLoopCoarseXY = 1.20
+	// Initial search radius (± radians) for Loop Closure.
+	ndtLoopCoarseTheta = 0.52
+	// Step size for XY search.
+	ndtLoopCoarseStepXY = 0.20
+	// Step size for Theta search.
 	ndtLoopCoarseStepTheta = 0.087
-	ndtLoopCoarseThetaMax  = 0.78
+	// Hard cap for how huge of an angle sweep to allow Loop Closure to do.
+	ndtLoopCoarseThetaMax = 0.78
 
+	// If the current submap is structurally further than this limit from the anchor (due to pure drift over time), the Coarse bounds expand dynamically.
 	loopDriftExpandThreshold = 1.0
-	loopDriftMaxCoarseXY     = 2.50
+	// Hard cap on the expanded XY search radius to prevent out-of-memory/CPU explosions.
+	loopDriftMaxCoarseXY = 2.50
 
-	// Coarse search penalties (prefer smaller corrections when scores are close).
-	ndtCoarseDistPenalty  = 0.06
-	ndtCoarseThetaPenalty = 0.03
+	// ==========================================
+	// Coarse search penalties (Forces the system to prefer smaller jumps unless the score is overwhelmingly better)
+	// ==========================================
+	// Penalty multiplicator per swept metre for sequential matches.
+	ndtSeqCoarseDistPenalty = 0.06
+	// High penalty multiper mapped per swept radian; prevents the submap jumping angles wildly on straight walls.
+	ndtSeqCoarseThetaPenalty = 0.09
 
-	// Geometry gates on matched support.
+	// Loop closures get lower penalties, allowing the map to snap larger distances and angles safely.
+	ndtLoopCoarseDistPenalty  = 0.06
+	ndtLoopCoarseThetaPenalty = 0.03
+
+	// ==========================================
+	// Geometry gates on matched support points (Prevents the "Corridor/Aperture Problem")
+	// ==========================================
+	// Sequential Geometry settings
+	// % of points that must have cleanly fallen into an ND-Grid cell
 	seqGeomMinSupportRatio = 0.10
-	seqGeomMinPCARatio     = 0.01
-	seqGeomMinSpanMinor    = 0.18
+	// PCA (Principal Component Analysis) bound. A ratio measuring Point-Cloud-Width / Point-Cloud-Length. >0.03 prevents slipping on totally flat walls.
+	seqGeomMinPCARatio = 0.02
+	// Absolute minimum physical spread (metre) of the walls in the shortest direction.
+	seqGeomMinSpanMinor = 0.18
 
+	// Loop Closure Geometry Settings (Stricter bounds because teleporting across the map needs higher confidence)
 	loopGeomMinSupportRatio = 0.12
 	loopGeomMinPCARatio     = 0.05
 	loopGeomMinSpanMinor    = 0.60
@@ -499,7 +545,7 @@ func passesGeomValidator(stats ndtGeomStats, minRatio, minPCARatio, minMinorSpan
 	return true, "ok"
 }
 
-func searchNDTWindow(walls []wallCell, ndt *NDTGrid, originX, originY, rangeXY, stepXY, rangeTheta, stepTheta float64) (bestDX, bestDY, bestDT, bestScore float64) {
+func searchNDTWindow(walls []wallCell, ndt *NDTGrid, originX, originY, rangeXY, stepXY, rangeTheta, stepTheta, distPenalty, thetaPenalty float64) (bestDX, bestDY, bestDT, bestScore float64) {
 	bestScore = -1
 	minSupport := max(8, len(walls)/12)
 	for dt := -rangeTheta; dt <= rangeTheta+1e-9; dt += stepTheta {
@@ -509,7 +555,7 @@ func searchNDTWindow(walls []wallCell, ndt *NDTGrid, originX, originY, rangeXY, 
 				if count < minSupport || ratio < 0.08 {
 					continue
 				}
-				penalty := float64(count) * (ndtCoarseDistPenalty*math.Hypot(dx, dy) + ndtCoarseThetaPenalty*math.Abs(dt))
+				penalty := float64(count) * (distPenalty*math.Hypot(dx, dy) + thetaPenalty*math.Abs(dt))
 				adj := s - penalty
 				if adj > bestScore {
 					bestScore = adj
@@ -534,6 +580,8 @@ func searchNDTAdaptive(walls []wallCell, ndt *NDTGrid, originX, originY, coarseX
 		ndtSeqCoarseStepXY,
 		coarseTheta,
 		ndtSeqCoarseStepTheta,
+		ndtSeqCoarseDistPenalty,
+		ndtSeqCoarseThetaPenalty,
 	)
 
 	// Fine pass: optimize around best coarse result
@@ -568,6 +616,8 @@ func searchLoopNDT(walls []wallCell, ndt *NDTGrid, originX, originY, coarseXY, c
 		ndtLoopCoarseStepXY,
 		coarseTheta,
 		ndtLoopCoarseStepTheta,
+		ndtLoopCoarseDistPenalty,
+		ndtLoopCoarseThetaPenalty,
 	)
 
 	// Fine pass: optimize around best coarse result
@@ -612,23 +662,31 @@ func downsampleWalls(walls []wallCell, maxCount int) []wallCell {
 
 // -- Sequential match -----------------------------------------------------
 
-// tryMatchToPrev aligns the outgoing (last) submap against a merged reference
-// built from the seqRefCount finished submaps before it.
+// tryMatchToPrev aligns the outgoing submap for robotID against a merged reference
+// built from the seqRefCount most-recent same-robot finalized submaps before it.
 // Returns the correction (dx, dy, dTheta) applied to the outgoing submap's origin,
 // or (0,0,0) if no confident match was found.
-func (m *OccupancyMap) tryMatchToPrev() (dx, dy, dTheta float64) {
+func (m *OccupancyMap) tryMatchToPrev(robotID int) (dx, dy, dTheta float64) {
 	n := len(m.submaps)
-	if n < 2 {
+	cur := m.activeSubmaps[robotID]
+	if cur == nil || n < 2 {
 		return
 	}
-	cur := m.active
 	walls := collectWalls(cur)
 	if len(walls) < matchMinWallCells {
 		return
 	}
 
-	start := max(n-1-seqRefCount, 0)
-	refs := m.submaps[start : n-1]
+	// Collect the last seqRefCount finalized submaps from the same robot (excluding cur).
+	var refs []*Submap
+	for i := n - 2; i >= 0 && len(refs) < seqRefCount; i-- {
+		if m.submaps[i].RobotID == robotID {
+			refs = append([]*Submap{m.submaps[i]}, refs...)
+		}
+	}
+	if len(refs) == 0 {
+		return
+	}
 	ndt := buildNDTGrid(refs, ndtGridCellSize)
 
 	bx, by, bt, sumScore := searchNDT(walls, ndt, cur.Origin.X, cur.Origin.Y)
@@ -641,62 +699,58 @@ func (m *OccupancyMap) tryMatchToPrev() (dx, dy, dTheta float64) {
 
 	okGeom, geomReason := passesGeomValidator(stats, seqGeomMinSupportRatio, seqGeomMinPCARatio, seqGeomMinSpanMinor)
 
-	if qualityScore < matchMinAvgScore || !okGeom {
-		wbx, wby, wbt, wscore := searchNDTAdaptive(walls, ndt, cur.Origin.X, cur.Origin.Y, ndtSeqCoarseXYWide, ndtSeqCoarseThetaWide)
-		wstats := ndtMatchGeometry(walls, ndt, cur.Origin.X, cur.Origin.Y, wbx, wby, wbt)
-		wokGeom, _ := passesGeomValidator(wstats, seqGeomMinSupportRatio, seqGeomMinPCARatio, seqGeomMinSpanMinor)
-
-		if wscore > sumScore && wokGeom {
-			bx, by, bt, sumScore = wbx, wby, wbt, wscore
-			stats, okGeom = wstats, true
-			if stats.Support > 0 {
-				qualityScore = sumScore / float64(stats.Support)
-			}
-		}
-	}
-
 	if qualityScore < matchMinAvgScore {
-		fmt.Printf("[SLAM SEQ] submap %d: rejected (quality=%.3f < %.2f, sum=%.1f)\n", n-1, qualityScore, matchMinAvgScore, sumScore)
+		fmt.Printf("[SLAM SEQ] submap %d: rejected (quality=%.3f < %.2f, sum=%.1f)\n", cur.ID, qualityScore, matchMinAvgScore, sumScore)
 		return
 	}
 	if !okGeom {
 		fmt.Printf("[SLAM SEQ] submap %d: rejected geom (%s support=%.2f pcaRatio=%.3f span=%.2fm×%.2fm)\n",
-			n-1, geomReason, stats.Ratio, stats.PCARatio, stats.SpanX, stats.SpanY)
+			cur.ID, geomReason, stats.Ratio, stats.PCARatio, stats.SpanX, stats.SpanY)
 		return
 	}
 
 	shapeRatio := scanGeometricDiversity(walls)
 
 	if shapeRatio < 0.02 { // Highly linear (Corridor)
-		fmt.Printf("[SLAM SEQ] submap %d: low diversity (PCA ratio=%.3f) — rejected match\n", n-1, shapeRatio)
+		fmt.Printf("[SLAM SEQ] submap %d: low diversity (PCA ratio=%.3f) — rejected match\n", cur.ID, shapeRatio)
 		return 0, 0, 0
 	}
 
 	fmt.Printf("[SLAM SEQ] submap %d: dx=%.3f dy=%.3f dθ=%.1f° score=%.3f shapeRatio=%.3f inlierPCA=%.3f span=%.2fm×%.2fm\n",
-		n-1, bx, by, bt*180/math.Pi, qualityScore, shapeRatio, stats.PCARatio, stats.SpanX, stats.SpanY)
+		cur.ID, bx, by, bt*180/math.Pi, qualityScore, shapeRatio, stats.PCARatio, stats.SpanX, stats.SpanY)
 
 	cur.Origin.X += bx
 	cur.Origin.Y += by
 	cur.Origin.Theta += bt
 
-	m.updateLastSequentialEdge()
+	m.updateLastSequentialEdge(robotID)
 
 	return bx, by, bt
 }
 
 // -- Loop closure ---------------------------------------------------------
 
-// tryLoopClosure checks all non-adjacent submaps within sensor range for a
-// high-quality match.  On success it distributes the correction linearly
-// across the entire pose chain via applyLoopClosure.
+// tryLoopClosure searches all keyframe submaps (including other robots) for a
+// high-quality match against robotID's outgoing submap.  On success it applies
+// the pose-graph correction via applyLoopClosure, which also stores pending
+// corrections for any other robots whose submaps were moved by Ceres.
 // fired is true when a closure was accepted, regardless of correction magnitude.
-func (m *OccupancyMap) tryLoopClosure() (dx, dy, dTheta float64, fired bool) {
+func (m *OccupancyMap) tryLoopClosure(robotID int) (dx, dy, dTheta float64, fired bool) {
 	n := len(m.submaps)
 	if n <= loopMinSubmapGap {
 		return
 	}
 
-	cur := m.active
+	// Global cooldown between loop-closure attempts.
+	if n-m.lastLCAttempt < loopMinSubmapGap {
+		return 0, 0, 0, false
+	}
+	m.lastLCAttempt = n
+
+	cur := m.activeSubmaps[robotID]
+	if cur == nil {
+		return
+	}
 	walls := collectWalls(cur)
 	if len(walls) < matchMinWallCells {
 		return
@@ -710,10 +764,18 @@ func (m *OccupancyMap) tryLoopClosure() (dx, dy, dTheta float64, fired bool) {
 	secondScore := -math.MaxFloat64
 	secondDX, secondDY, secondDT := 0.0, 0.0, 0.0
 
-	for ai := 0; ai <= n-loopMinSubmapGap; ai++ {
+	// Search ALL keyframe submaps — cross-robot loop closures are allowed.
+	// For same-robot anchors we still enforce the minimum submap-gap guard to
+	// prevent trivially short self-loops.
+	for ai := 0; ai < n-1; ai++ {
 		anchor := m.submaps[ai]
 
 		if !anchor.IsKeyframe {
+			continue
+		}
+
+		// Same-robot anchors must be at least loopMinSubmapGap steps back.
+		if anchor.RobotID == robotID && (n-1-ai) <= loopMinSubmapGap {
 			continue
 		}
 
@@ -762,7 +824,7 @@ func (m *OccupancyMap) tryLoopClosure() (dx, dy, dTheta float64, fired bool) {
 			math.Abs(normalizeAngle(bestDT-secondDT)) > loopHypoPoseCloseTheta
 		if scoreSimilar && poseFar {
 			fmt.Printf("[SLAM LC] submap %d: rejected (ambiguous — bestSum=%.1f secondSum=%.1f poseDist=%.2fm)\n",
-				n-1, bestScore, secondScore, math.Hypot(bestDX-secondDX, bestDY-secondDY))
+				cur.ID, bestScore, secondScore, math.Hypot(bestDX-secondDX, bestDY-secondDY))
 			return 0, 0, 0, false
 		}
 	}
@@ -770,7 +832,7 @@ func (m *OccupancyMap) tryLoopClosure() (dx, dy, dTheta float64, fired bool) {
 	shapeRatio := scanGeometricDiversity(walls)
 	if shapeRatio < 0.05 {
 		fmt.Printf("[SLAM LC] submap %d: rejected (geometric diversity=%.3f < %.3f, single-wall)\n",
-			n-1, shapeRatio, 0.05)
+			cur.ID, shapeRatio, 0.05)
 		return 0, 0, 0, false
 	}
 
@@ -785,7 +847,7 @@ func (m *OccupancyMap) tryLoopClosure() (dx, dy, dTheta float64, fired bool) {
 	}
 
 	if qualityScore < loopMinAvgScore {
-		fmt.Printf("[SLAM LC] submap %d: no closure (quality=%.3f < %.2f)\n", n-1, qualityScore, loopMinAvgScore)
+		fmt.Printf("[SLAM LC] submap %d: no closure (quality=%.3f < %.2f)\n", cur.ID, qualityScore, loopMinAvgScore)
 		return 0, 0, 0, false
 	}
 
@@ -794,12 +856,12 @@ func (m *OccupancyMap) tryLoopClosure() (dx, dy, dTheta float64, fired bool) {
 	okGeom, geomReason := passesGeomValidator(stats, loopGeomMinSupportRatio, loopGeomMinPCARatio, loopGeomMinSpanMinor)
 	if !okGeom {
 		fmt.Printf("[SLAM LC] submap %d: rejected geom (%s support=%.2f pcaRatio=%.3f span=%.2fm×%.2fm)\n",
-			n-1, geomReason, stats.Ratio, stats.PCARatio, stats.SpanX, stats.SpanY)
+			cur.ID, geomReason, stats.Ratio, stats.PCARatio, stats.SpanX, stats.SpanY)
 		return 0, 0, 0, false
 	}
 
 	fmt.Printf("[SLAM LC] CLOSED: submap %d → anchor %d  dx=%.3f dy=%.3f dθ=%.1f°  score=%.3f  shapeRatio=%.3f inlierPCA=%.3f span=%.2fm×%.2fm\n",
-		n-1, bestAnchor, bestDX, bestDY, bestDT*180/math.Pi, bestScore, shapeRatio, stats.PCARatio, stats.SpanX, stats.SpanY)
+		cur.ID, bestAnchor, bestDX, bestDY, bestDT*180/math.Pi, qualityScore, shapeRatio, stats.PCARatio, stats.SpanX, stats.SpanY)
 
 	optDX, optDY, optDT := m.applyLoopClosure(bestAnchor, n-1, bestDX, bestDY, bestDT)
 	return optDX, optDY, optDT, true

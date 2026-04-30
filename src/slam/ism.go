@@ -25,7 +25,7 @@ import (
 // Constants are tuned for a 5 cm grid and per-ray half-cone of ±3°.
 
 const (
-	ismHitOdds       float32 = 0.40          // log-odds per confirmed hit at beam centre
+	ismHitOdds       float32 = 0.60          // log-odds per confirmed hit at beam centre
 	ismFreeOdds      float32 = 0.08          // log-odds removed per free-space cell
 	ismMaxOdds       float32 = 3.5           // occupied saturation cap
 	ismMinOdds       float32 = -1.0          // free saturation cap
@@ -148,7 +148,8 @@ func (s *Submap) ClearFOV(robotX, robotY, robotTheta, maxRange, fovAngle float64
 		sinA := math.Sin(rayAngle)
 
 		// 3. March along the ray step-by-step
-		for r := 0.0; r <= maxRange; r += GridRes {
+		rayStep := GridRes * 0.5
+		for r := 0.0; r <= maxRange; r += rayStep {
 			hitX := locRx + r*cosA
 			hitY := locRy + r*sinA
 
@@ -173,6 +174,152 @@ func (s *Submap) ClearFOV(robotX, robotY, robotTheta, maxRange, fovAngle float64
 			// the physical sensor beam is blocked!
 			// We break the loop so it casts a shadow and doesn't erase unseen space.
 			// (Assuming 0.08 is your visual threshold for a wall)
+			if currentVal > 0.08 {
+				break
+			}
+		}
+	}
+}
+
+func (s *Submap) UpdateSolidCone_test(robotX, robotY, robotTheta, dist, startX, endX float64) {
+	// 1. Convert Robot Pose to Submap Local Frame
+	locRx, locRy := s.Origin.GlobalToLocal(robotX, robotY)
+	locRt := util.NormalizeAngle(robotTheta - s.Origin.Theta)
+
+	cosT := math.Cos(locRt)
+	sinT := math.Sin(locRt)
+
+	// Robot grid cell (rx, ry)
+	rx := int(math.Floor(locRx / GridRes))
+	ry := -int(math.Floor(locRy / GridRes))
+
+	// ========================================================
+	// DEL 1: VISKELÆR (Freespace)
+	// Ported directly from Python's add_scan_to_local_grid
+	// ========================================================
+	angle1 := math.Atan2(startX, dist)
+	angle2 := math.Atan2(endX, dist)
+	minAngle := math.Min(angle1, angle2)
+	maxAngle := math.Max(angle1, angle2)
+
+	fovAngle := maxAngle - minAngle
+	if fovAngle < 0.01 {
+		fovAngle = 0.01
+	}
+
+	arcLength := fovAngle * dist
+	numRays := int(math.Ceil(arcLength / (GridRes * 0.5)))
+	if numRays < 5 {
+		numRays = 5
+	}
+	angleStep := fovAngle / float64(numRays)
+
+	for i := 0; i <= numRays; i++ {
+		rayAngle := locRt + minAngle + float64(i)*angleStep
+
+		hitX := locRx + dist*math.Cos(rayAngle)
+		hitY := locRy + dist*math.Sin(rayAngle)
+
+		hx := int(math.Floor(hitX / GridRes))
+		hy := -int(math.Floor(hitY / GridRes))
+
+		steps := int(math.Hypot(float64(hx-rx), float64(hy-ry)))
+		if steps == 0 {
+			continue
+		}
+
+		// Den magiske Python-løsningen: Stopper på steps-1!
+		// Viskelæret rører aldri veggen, så vi slipper occlusion-checks!
+		for j := 0; j < steps; j++ {
+			cx := rx + int(float64(hx-rx)*(float64(j)/float64(steps)))
+			cy := ry + int(float64(hy-ry)*(float64(j)/float64(steps)))
+
+			key := CellKey{X: cx, Y: cy}
+			v := s.grid[key] - ismFreeOdds
+			if v < ismMinOdds {
+				v = ismMinOdds
+			}
+			s.grid[key] = v
+		}
+	}
+
+	// ========================================================
+	// DEL 2: TEGN VEGG (Occupied)
+	// Ported directly from Python's add_line_segment_to_grid
+	// ========================================================
+	weight := float32(math.Exp(-dist / 2.0))
+	addOdds := ismHitOdds * weight
+
+	nSteps := int(math.Max(math.Abs(endX-startX)/(GridRes*0.5), 2))
+	stepY := (endX - startX) / float64(nSteps)
+
+	for i := 0; i <= nSteps; i++ {
+		yLocal := startX + float64(i)*stepY
+
+		// 2D Rotation (Nøyaktig som din python linje: hit_x = rel_pose + dist*c - y_local*s)
+		hitX := locRx + (dist * cosT) - (yLocal * sinT)
+		hitY := locRy + (dist * sinT) + (yLocal * cosT)
+
+		hx := int(math.Floor(hitX / GridRes))
+		hy := -int(math.Floor(hitY / GridRes))
+		key := CellKey{X: hx, Y: hy}
+
+		v := s.grid[key] + addOdds
+		if v > ismMaxOdds {
+			v = ismMaxOdds
+		}
+		s.grid[key] = v
+	}
+}
+
+// ClearFOV acts as an occluded eraser using Raytracing.
+// Used ONLY when the sensor sees open space (no hits).
+func (s *Submap) ClearFOV_test(robotX, robotY, robotTheta, maxRange, fovAngle float64) {
+	halfFOV := fovAngle / 2.0
+
+	// Convert Robot Pose to Submap Local Frame
+	locRx, locRy := s.Origin.GlobalToLocal(robotX, robotY)
+	locRt := util.NormalizeAngle(robotTheta - s.Origin.Theta)
+
+	minRays := int(math.Ceil((fovAngle * maxRange) / (GridRes * 0.5)))
+	if minRays < 10 {
+		minRays = 10
+	}
+	angleStep := fovAngle / float64(minRays)
+
+	// THE CHESS-PATTERN FIX: Step by half a cell
+	rayStep := GridRes * 0.5
+
+	for i := 0; i <= minRays; i++ {
+		rayAngle := locRt - halfFOV + float64(i)*angleStep
+		cosA := math.Cos(rayAngle)
+		sinA := math.Sin(rayAngle)
+
+		lastKey := CellKey{X: -999999, Y: -999999}
+
+		for r := 0.0; r <= maxRange; r += rayStep {
+			hitX := locRx + r*cosA
+			hitY := locRy + r*sinA
+
+			cx := int(math.Floor(hitX / GridRes))
+			cy := -int(math.Floor(hitY / GridRes))
+			key := CellKey{X: cx, Y: cy}
+
+			if key == lastKey {
+				continue
+			}
+			lastKey = key
+
+			currentVal := s.grid[key]
+			newVal := currentVal - ismFreeOdds
+			if newVal < ismMinOdds {
+				newVal = ismMinOdds
+			}
+			s.grid[key] = newVal
+
+			// OCCLUSION CHECK:
+			// If we bump into a wall while clearing open space, stop this ray!
+			// We do not need the "Safety Buffer" here because we aren't painting a wall.
 			if currentVal > 0.08 {
 				break
 			}

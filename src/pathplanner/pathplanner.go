@@ -9,6 +9,7 @@ import (
 // Path contains a sequence of waypoints.
 type Path struct {
 	Waypoints []Waypoint
+	Loop      bool
 }
 
 func NewPath(waypoints ...Waypoint) Path {
@@ -17,12 +18,19 @@ func NewPath(waypoints ...Waypoint) Path {
 	return Path{Waypoints: out}
 }
 
+func (p Path) WithLoop(loop bool) Path {
+	p.Loop = loop
+	return p
+}
+
 func (p Path) IsEmpty() bool {
 	return len(p.Waypoints) == 0
 }
 
 type ManualPoseProvider func(id int) (types.RobotState, bool)
 type AutoPoseProvider func() (types.RobotState, bool)
+type LoopStateProvider func() bool
+type CancelStateProvider func() bool
 
 type PathPlanner struct {
 	waypoints []Waypoint
@@ -76,6 +84,8 @@ func RunManualPath(
 	id int,
 	path Path,
 	poseProvider ManualPoseProvider,
+	loopProvider LoopStateProvider,
+	cancelProvider CancelStateProvider,
 	onWaypoint func(Waypoint),
 ) {
 	if path.IsEmpty() {
@@ -88,7 +98,8 @@ func RunManualPath(
 		settleDuration   = time.Second
 		checkInterval    = 200 * time.Millisecond
 		graceDuration    = 4 * time.Second // give the robot time to rotate/start moving
-		nominalAccel     = 25.0            // cm/s^2 used in s=0.5*a*t^2 expected-time estimate
+		minProgressCm    = 1.0
+		nominalAccel     = 25.0 // cm/s^2 used in s=0.5*a*t^2 expected-time estimate
 		minExpectedSec   = 2.0
 		maxExpectedSec   = 12.0
 		extraBufferSec   = 1.0
@@ -110,7 +121,7 @@ func RunManualPath(
 		return time.Duration(seconds * float64(time.Second))
 	}
 
-	waitForTarget := func(target Waypoint) {
+	waitForTarget := func(target Waypoint) bool {
 		time.Sleep(graceDuration)
 
 		var (
@@ -119,9 +130,14 @@ func RunManualPath(
 			havePose   = false
 			lastSendAt = time.Now()
 			expectBy   = 5 * time.Second
+			lastDist   = 0.0
 		)
 
 		for {
+			if cancelProvider != nil && cancelProvider() {
+				return false
+			}
+
 			time.Sleep(checkInterval)
 
 			pose, ok := poseProvider(id)
@@ -134,18 +150,28 @@ func RunManualPath(
 				dist := math.Hypot(float64(pose.X-target.X), float64(pose.Y-target.Y))
 				expectBy = expectedDuration(dist)
 				lastSendAt = time.Now()
+				lastDist = dist
 				havePose = true
 			}
 
 			dist := math.Hypot(float64(pose.X-target.X), float64(pose.Y-target.Y))
 
-			if pose.X != lastPose.X || pose.Y != lastPose.Y || pose.Theta != lastPose.Theta {
+			if pose.X != lastPose.X || pose.Y != lastPose.Y {
 				lastPose = pose
 				lastUpdate = time.Now()
 			}
 
+			if lastDist-dist >= minProgressCm {
+				lastUpdate = time.Now()
+				lastDist = dist
+			}
+
+			if dist > lastDist {
+				lastDist = dist
+			}
+
 			if dist <= acceptableRadius && time.Since(lastUpdate) >= settleDuration {
-				return
+				return true
 			}
 
 			if dist > acceptableRadius && time.Since(lastUpdate) > stallThreshold {
@@ -163,12 +189,29 @@ func RunManualPath(
 		}
 	}
 
-	for _, wp := range path.Waypoints {
-		if onWaypoint != nil {
-			onWaypoint(wp)
+	for {
+		if cancelProvider != nil && cancelProvider() {
+			return
 		}
-		send(wp)
-		waitForTarget(wp)
+		for _, wp := range path.Waypoints {
+			if cancelProvider != nil && cancelProvider() {
+				return
+			}
+			if onWaypoint != nil {
+				onWaypoint(wp)
+			}
+			send(wp)
+			if !waitForTarget(wp) {
+				return
+			}
+		}
+		loopEnabled := path.Loop
+		if loopProvider != nil {
+			loopEnabled = loopProvider()
+		}
+		if !loopEnabled {
+			return
+		}
 	}
 }
 
@@ -176,6 +219,8 @@ func RunAutomaticPath(
 	chG2bCommand chan<- types.Command,
 	path Path,
 	poseProvider AutoPoseProvider,
+	loopProvider LoopStateProvider,
+	cancelProvider CancelStateProvider,
 	onWaypoint func(Waypoint),
 ) {
 	if path.IsEmpty() {
@@ -188,21 +233,29 @@ func RunAutomaticPath(
 		settleDuration   = time.Second
 		checkInterval    = 200 * time.Millisecond
 		graceDuration    = 4 * time.Second
+		minProgressCm    = 1.0
+		resendInterval   = 6 * time.Second
 	)
 
 	send := func(wp Waypoint) {
 		chG2bCommand <- types.Command{CommandType: types.AutomaticCommand, Id: -1, X: wp.X, Y: wp.Y}
 	}
 
-	waitForTarget := func(target Waypoint) {
+	waitForTarget := func(target Waypoint) bool {
 		time.Sleep(graceDuration)
 		var (
 			lastPose   types.RobotState
 			lastUpdate = time.Now()
 			havePose   = false
+			lastSendAt = time.Now()
+			lastDist   = 0.0
 		)
 
 		for {
+			if cancelProvider != nil && cancelProvider() {
+				return false
+			}
+
 			time.Sleep(checkInterval)
 			pose, ok := poseProvider()
 			if !ok {
@@ -211,31 +264,65 @@ func RunAutomaticPath(
 			if !havePose {
 				lastPose = pose
 				lastUpdate = time.Now()
+				lastDist = math.Hypot(float64(pose.X-target.X), float64(pose.Y-target.Y))
+				lastSendAt = time.Now()
 				havePose = true
 			}
 
 			dist := math.Hypot(float64(pose.X-target.X), float64(pose.Y-target.Y))
-			if pose.X != lastPose.X || pose.Y != lastPose.Y || pose.Theta != lastPose.Theta {
+			if pose.X != lastPose.X || pose.Y != lastPose.Y {
 				lastPose = pose
 				lastUpdate = time.Now()
 			}
 
+			if lastDist-dist >= minProgressCm {
+				lastUpdate = time.Now()
+				lastDist = dist
+			}
+
+			if dist > lastDist {
+				lastDist = dist
+			}
+
 			if dist <= acceptableRadius && time.Since(lastUpdate) >= settleDuration {
-				return
+				return true
 			}
 
 			if dist > acceptableRadius && time.Since(lastUpdate) > stallThreshold {
 				send(target)
 				lastUpdate = time.Now()
+				lastSendAt = time.Now()
+			}
+
+			if dist > acceptableRadius && time.Since(lastSendAt) > resendInterval {
+				send(target)
+				lastSendAt = time.Now()
 			}
 		}
 	}
 
-	for _, wp := range path.Waypoints {
-		if onWaypoint != nil {
-			onWaypoint(wp)
+	for {
+		if cancelProvider != nil && cancelProvider() {
+			return
 		}
-		send(wp)
-		waitForTarget(wp)
+		for _, wp := range path.Waypoints {
+			if cancelProvider != nil && cancelProvider() {
+				return
+			}
+			if onWaypoint != nil {
+				onWaypoint(wp)
+			}
+			send(wp)
+			if !waitForTarget(wp) {
+				return
+			}
+		}
+		loopEnabled := path.Loop
+		if loopProvider != nil {
+			loopEnabled = loopProvider()
+		}
+		if !loopEnabled {
+			return
+		}
 	}
 }

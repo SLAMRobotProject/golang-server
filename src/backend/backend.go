@@ -107,10 +107,7 @@ func RunBackend(
 
 func (e *BackendEngine) handleGuiTick() {
 	multiRobot, id2index := e.runtimeState.snapshotRobotStates()
-	submapCounts := make(map[int]int, len(e.runtimeMap.slamMappers))
-	for id, mapper := range e.runtimeMap.slamMappers {
-		submapCounts[id] = mapper.SubmapCount()
-	}
+	submapCounts := e.runtimeMap.slamMapper.SubmapCountPerRobot()
 	e.chB2gUpdate <- types.UpdateGui{
 		MultiRobot:        multiRobot,
 		Id2index:          id2index,
@@ -179,27 +176,35 @@ func (e *BackendEngine) handleCameraMsg(cam types.CameraMsg) {
 	if _, exist := e.runtimeState.indexByID(cam.Id); !exist {
 		return
 	}
-	mapper := e.runtimeMap.slamMappers[cam.Id]
-	if mapper == nil {
-		e.runtimeMap.visualLines = [][2]types.Point{}
-		return
-	}
 
 	r := e.runtimeState.getRobotObject(cam.Id)
 	if r == nil {
+		e.runtimeMap.visualLines = [][2]types.Point{}
 		return
 	}
 	gX := r.Current.X
 	gY := r.Current.Y
 	gTheta := r.Current.Theta
 
+	mapper := e.runtimeMap.slamMapper
+
 	processSlamUpdate := func(sensorObservation types.CameraObject) {
-		img, correction := mapper.ProcessUpdate(gX, gY, gTheta, sensorObservation)
-		e.runtimeMap.slamMapImgs[cam.Id] = img
-		e.runtimeMap.slamGlobalImgs[cam.Id] = mapper.RenderGlobal()
-		e.runtimeMap.slamGlobalDbgImgs[cam.Id] = mapper.RenderGlobalDebug()
-		if correction != nil {
-			e.runtimeState.applyRobotMapCorrection(cam.Id, pose.Pose{X: correction.X, Y: correction.Y, Theta: correction.Theta})
+		localImg, corrections := mapper.ProcessUpdate(cam.Id, gX, gY, gTheta, sensorObservation)
+		e.runtimeMap.slamMapImgs[cam.Id] = localImg
+
+		// Apply all pose corrections (may include other robots from cross-robot LC).
+		for id, corr := range corrections {
+			if corr != nil {
+				e.runtimeState.applyRobotMapCorrection(id, pose.Pose{X: corr.X, Y: corr.Y, Theta: corr.Theta})
+			}
+		}
+
+		// Re-render the shared global map and publish it to every registered robot slot.
+		globalImg := mapper.RenderGlobal()
+		globalDbgImg := mapper.RenderGlobalDebug()
+		for id := range e.runtimeMap.slamRobotIDs {
+			e.runtimeMap.slamGlobalImgs[id] = globalImg
+			e.runtimeMap.slamGlobalDbgImgs[id] = globalDbgImg
 		}
 	}
 
@@ -236,6 +241,7 @@ func (e *BackendEngine) handleRobotInit(init [4]int) {
 	id := init[0]
 	initialPose := pose.Pose{X: util.CmToMetres(init[1]), Y: util.CmToMetres(init[2]), Theta: util.DegreesToRadians(init[3])}
 	e.runtimeState.addRuntimeRobot(robot.NewRobot(id, initialPose))
-	e.runtimeMap.slamMappers[id] = slam.NewOccupancyMap()
+	// Register the robot with the global SLAM map (lazy: first ProcessUpdate creates its state).
+	e.runtimeMap.slamRobotIDs[id] = struct{}{}
 	delete(e.pendingInit, id)
 }

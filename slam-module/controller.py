@@ -91,7 +91,7 @@ class HybridController:
     Hybridkontroller med Stop-and-Scan funksjonalitet.
     Tilstandsmaskin: TURN -> DRIVE -> PIROUETTE
     """
-    def __init__(self, wheel_radius=0.07, wheel_base=0.175, wp_radius=0.10):
+    def __init__(self, wheel_radius=0.07, wheel_base=0.175, wp_radius=0.05):
         self.R = wheel_radius
         self.L = wheel_base
         
@@ -119,6 +119,9 @@ class HybridController:
         self.idle_timer = 0.0
         self.calibration_wait_time = 0.5 
         self.is_idle = False
+
+        self.last_scan_center = None
+        self.scan_min_separation = 0.60
 
     def get_wheel_speeds(self, current_pose, target_pose, dt):
         x, y, theta = current_pose
@@ -175,6 +178,15 @@ class HybridController:
                 
             # Er vi fremme ved stjernen?
             if dist_error < self.goal_epsilon:
+                if self.last_scan_center is not None:
+                    # Vi måler distansen fra hvor roboten *FYSISK ER* i Odom-koordinater
+                    # mot hvor den tok det forrige spinnet sitt! (Ikke target - det kan ha hoppet!)
+                    dx = x - self.last_scan_center[0]
+                    dy = y - self.last_scan_center[1]
+                    if np.hypot(dx, dy) < self.scan_min_separation:
+                        self.mode = "TURN"
+                        return 0.0, 0.0, True
+
                 # Gå inn i Piruett-modus og gjør klar rotasjons-telleren!
                 self.mode = "PIROUETTE"
                 self.last_theta = theta
@@ -216,6 +228,7 @@ class HybridController:
             
             # Har vi tatt en full 360? (2 * Pi radianer)
             if self.accumulated_yaw >= (2 * np.pi):
+                self.last_scan_center = (x, y)
                 self.mode = "TURN" # Gjør klar for neste waypoint
                 self.pirouette_direction *= -1.0 # Bytt retning for neste piruett
                 return 0.0, 0.0, True # NÅ sier vi ifra til main.py at vi er ferdige!

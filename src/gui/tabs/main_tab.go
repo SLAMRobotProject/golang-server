@@ -9,6 +9,7 @@ import (
 	"image"
 	"image/color"
 	"strconv"
+	"sync/atomic"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -273,6 +274,11 @@ func buildPathControlLayout(
 
 	pathRobotSelect := widget.NewSelect([]string{}, onPathRobotSelected)
 	pathRobotSelect.PlaceHolder = "Select robot"
+	var loopEnabled atomic.Bool
+	loopEnabled.Store(false)
+	loopToggle := widgets.NewToggleButton(false, func(on bool) {
+		loopEnabled.Store(on)
+	})
 
 	type waypointRow struct {
 		xEntry *widget.Entry
@@ -284,11 +290,13 @@ func buildPathControlLayout(
 	waypointList := container.NewVBox()
 	nextTargetLabel := widget.NewLabel("Next target: -")
 	pathBusy := false
+	var pathCancel atomic.Bool
 
 	var addWaypointBtn *widget.Button
 	var runCustomPathBtn *widget.Button
 	var runSquareBtn *widget.Button
 	var runVirtualPathBtn *widget.Button
+	var cancelPathBtn *widget.Button
 
 	setPathBusy := func(busy bool) {
 		pathBusy = busy
@@ -318,6 +326,13 @@ func buildPathControlLayout(
 				runVirtualPathBtn.Disable()
 			} else {
 				runVirtualPathBtn.Enable()
+			}
+		}
+		if cancelPathBtn != nil {
+			if busy {
+				cancelPathBtn.Enable()
+			} else {
+				cancelPathBtn.Disable()
 			}
 		}
 		if pathRobotSelect != nil {
@@ -390,7 +405,7 @@ func buildPathControlLayout(
 			}
 			pathPlanner.AddWaypoint(wp)
 		}
-		return pathPlanner.PlannedPath(), true
+		return pathPlanner.PlannedPath().WithLoop(loopEnabled.Load()), true
 	}
 
 	addWaypointRow("", "")
@@ -417,8 +432,9 @@ func buildPathControlLayout(
 		}
 
 		setPathBusy(true)
+		pathCancel.Store(false)
 		go func(robotID int, path pathP.Path) {
-			pathP.RunManualPath(chG2bCommand, robotID, path, getRobotPose, func(wp pathP.Waypoint) {
+			pathP.RunManualPath(chG2bCommand, robotID, path, getRobotPose, func() bool { return loopEnabled.Load() }, func() bool { return pathCancel.Load() }, func(wp pathP.Waypoint) {
 				fyne.Do(func() {
 					nextTargetLabel.SetText(fmt.Sprintf("Next target: (%d, %d)", wp.X, wp.Y))
 				})
@@ -439,8 +455,9 @@ func buildPathControlLayout(
 			return
 		}
 		setPathBusy(true)
+		pathCancel.Store(false)
 		go func(robotID int) {
-			pathP.RunManualPath(chG2bCommand, robotID, pathP.SquareTestPath(), getRobotPose, func(wp pathP.Waypoint) {
+			pathP.RunManualPath(chG2bCommand, robotID, pathP.SquareTestPath().WithLoop(loopEnabled.Load()), getRobotPose, func() bool { return loopEnabled.Load() }, func() bool { return pathCancel.Load() }, func(wp pathP.Waypoint) {
 				fyne.Do(func() {
 					nextTargetLabel.SetText(fmt.Sprintf("Next target: (%d, %d)", wp.X, wp.Y))
 				})
@@ -456,9 +473,14 @@ func buildPathControlLayout(
 		if pathBusy {
 			return
 		}
+		if getSelectedPathRobotID() == -1 {
+			log.GGeneralLogger.Println("Select a robot before running virtual path.")
+			return
+		}
 		setPathBusy(true)
+		pathCancel.Store(false)
 		go func() {
-			pathP.RunAutomaticPath(chG2bCommand, pathP.VirtualDefaultPath(), getAnyRobotPose, func(wp pathP.Waypoint) {
+			pathP.RunAutomaticPath(chG2bCommand, pathP.VirtualDefaultPath().WithLoop(loopEnabled.Load()), getAnyRobotPose, func() bool { return loopEnabled.Load() }, func() bool { return pathCancel.Load() }, func(wp pathP.Waypoint) {
 				fyne.Do(func() {
 					nextTargetLabel.SetText(fmt.Sprintf("Next target: (%d, %d)", wp.X, wp.Y))
 				})
@@ -470,8 +492,21 @@ func buildPathControlLayout(
 		}()
 	})
 
+	cancelPathBtn = widget.NewButton("Cancel path", func() {
+		if !pathBusy {
+			return
+		}
+		pathCancel.Store(true)
+	})
+	cancelPathBtn.Disable()
+
 	return container.NewVBox(
-		pathRobotSelect,
+		container.NewHBox(
+			pathRobotSelect,
+			layout.NewSpacer(),
+			widget.NewLabel("Loop"),
+			container.NewCenter(loopToggle),
+		),
 		nextTargetLabel,
 		container.NewHBox(widget.NewLabel("Custom waypoints"), addWaypointBtn),
 		waypointList,
@@ -479,5 +514,6 @@ func buildPathControlLayout(
 		widget.NewSeparator(),
 		runSquareBtn,
 		runVirtualPathBtn,
+		cancelPathBtn,
 	), pathRobotSelect
 }

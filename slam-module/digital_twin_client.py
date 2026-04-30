@@ -61,10 +61,7 @@ class DigitalTwinClient:
                 if msg_type == "target":
                     # Go server sends odom-frame target computed from SLAM-corrected pose.
                     with self.pose_lock:
-                        new_target = (data["x"], data["y"])
-                        if new_target != self.current_target:
-                            self.current_target = new_target
-                            self.controller = HybridController()  # reset state machine for new target
+                        self.current_target = (data["x"], data["y"])
 
             except Exception as e:
                 print(f"Listener error: {e}")
@@ -79,8 +76,7 @@ class DigitalTwinClient:
             dt = 0.01
 
             if target is not None:
-                # Navigate in odom frame using raw EKF pose — no map correction needed here
-                # because the Go server already converted the map-frame waypoint to odom frame.
+                # Navigate in odom frame using raw EKF pose
                 ekf_pose = self.robot.ekf.x[:3].copy()
                 try:
                     omega_l, omega_r, is_done = self.controller.get_wheel_speeds(
@@ -88,12 +84,8 @@ class DigitalTwinClient:
                         target_pose=target,
                         dt=dt
                     )
-                    if is_done:
-                        # Waypoint reached (pirouette complete). Stop and wait for the
-                        # next command from the Go server's VirtualPath control.
-                        with self.pose_lock:
-                            self.current_target = None
-                        omega_l, omega_r = 0.0, 0.0
+                    # Go pathplanner sender neste Target når den er fornøyd med rotasjonen og distansen. 
+                    # Vi trenger ikke fjerne targetet manuelt her.
                 except Exception as e:
                     print(f"Controller error: {e}")
                     omega_l, omega_r = 0.0, 0.0

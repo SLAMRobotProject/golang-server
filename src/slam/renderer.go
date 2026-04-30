@@ -1,7 +1,6 @@
 package slam
 
 import (
-	util "golang-server/utilities"
 	"image"
 	"image/color"
 	"math"
@@ -46,29 +45,23 @@ func logOddsToColor(v float32, free, wall color.RGBA) color.RGBA {
 }
 
 // renderLocal draws the active submap centered on the robot position (rxF, ryF in submap cell space).
-// The robot dot is always at the image center.
+// worldTheta is the robot's heading in the world frame for the direction arrow.
 // The display is always world-aligned (North-up): counter-rotating by -Origin.Theta so the
 // apparent orientation never jumps when a new submap starts with a corrected heading.
-func (m *OccupancyMap) renderLocal(s *Submap, rxF, ryF float64) *image.RGBA {
+func (m *OccupancyMap) renderLocal(s *Submap, rxF, ryF, worldTheta float64) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, localImgSize, localImgSize))
 
-	// Pre-compute the rotation needed to convert a world-aligned display offset
-	// into the submap's local cell frame.
 	cosOt := math.Cos(-s.Origin.Theta)
 	sinOt := math.Sin(-s.Origin.Theta)
 
 	for cy := 0; cy < ViewSize; cy++ {
 		for cx := 0; cx < ViewSize; cx++ {
-			// World-aligned offset from the robot center (in cell units).
-			// +dxW = East, +dyW = North (image Y is inverted: south = larger cy).
 			dxW := float64(cx - ViewHalf)
 			dyW := -float64(cy - ViewHalf)
 
-			// Rotate world offset into the submap's local frame.
 			ldx := dxW*cosOt - dyW*sinOt
 			ldy := dxW*sinOt + dyW*cosOt
 
-			// Map to the local cell key (cell Y is south-positive, so negate ldy).
 			cellX := int(math.Round(rxF + ldx))
 			cellY := int(math.Round(ryF - ldy))
 
@@ -77,7 +70,7 @@ func (m *OccupancyMap) renderLocal(s *Submap, rxF, ryF float64) *image.RGBA {
 
 			var clr color.RGBA
 			if !exists {
-				clr = clrGray // Unexplored space
+				clr = clrGray
 			} else {
 				clr = logOddsToColor(v, clrWhite, clrBlack)
 			}
@@ -111,10 +104,8 @@ func (m *OccupancyMap) renderLocal(s *Submap, rxF, ryF float64) *image.RGBA {
 		}
 	}
 
-	// Direction shaft
-	localTheta := util.NormalizeAngle(m.CurrentPose.Theta - s.Origin.Theta)
-	imgDx := math.Cos(localTheta)
-	imgDy := -math.Sin(localTheta)
+	imgDx := math.Cos(worldTheta)
+	imgDy := -math.Sin(worldTheta)
 
 	const shaftPx = 12 * pixelsPerCell
 	const dotR = 2 * pixelsPerCell
@@ -135,10 +126,11 @@ func (m *OccupancyMap) renderLocal(s *Submap, rxF, ryF float64) *image.RGBA {
 	return img
 }
 
-// renderGlobal composites all submaps into one world occupancy grid and then
-// renders an adaptive viewport so the map fills the frame as it grows.
+// renderGlobal composites all submaps from all robots into one world occupancy grid.
 const globalImgSize = GridWidth
 
+// buildWorldComposite stamps every finalized submap and every active submap
+// (one per robot) onto a shared world grid and returns the occupied bounds.
 func buildWorldComposite(m *OccupancyMap) (
 	grid [GridHeight][GridWidth]float32,
 	seen [GridHeight][GridWidth]bool,
@@ -148,18 +140,10 @@ func buildWorldComposite(m *OccupancyMap) (
 	minX, minY = GridWidth, GridHeight
 	maxX, maxY = -1, -1
 
-	for si := 0; si <= len(m.submaps); si++ {
-		var s *Submap
-		if si < len(m.submaps) {
-			s = m.submaps[si]
-		} else {
-			s = m.active
-		}
-
+	stamp := func(s *Submap) {
 		if s == nil {
-			continue
+			return
 		}
-
 		for key, v := range s.grid {
 			if v == 0 {
 				continue
@@ -182,7 +166,6 @@ func buildWorldComposite(m *OccupancyMap) (
 			} else if acc < ismMinOdds {
 				acc = ismMinOdds
 			}
-
 			grid[gridY][gridX] = acc
 			seen[gridY][gridX] = true
 
@@ -201,6 +184,13 @@ func buildWorldComposite(m *OccupancyMap) (
 		}
 	}
 
+	for _, s := range m.submaps {
+		stamp(s)
+	}
+	for _, s := range m.activeSubmaps {
+		stamp(s)
+	}
+
 	if maxX >= minX && maxY >= minY {
 		ok = true
 	}
@@ -210,7 +200,6 @@ func buildWorldComposite(m *OccupancyMap) (
 func (m *OccupancyMap) renderGlobal(showMatches bool) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, globalImgSize, globalImgSize))
 
-	// Fill with gray (unknown)
 	for y := 0; y < globalImgSize; y++ {
 		for x := 0; x < globalImgSize; x++ {
 			img.Set(x, y, clrGray)
@@ -222,7 +211,6 @@ func (m *OccupancyMap) renderGlobal(showMatches bool) *image.RGBA {
 		return img
 	}
 
-	// Expand the viewport a bit so the map breathes and zoom changes are smoother.
 	minX -= globalViewportPaddingCells
 	minY -= globalViewportPaddingCells
 	maxX += globalViewportPaddingCells
@@ -329,22 +317,29 @@ func (m *OccupancyMap) renderGlobal(showMatches bool) *image.RGBA {
 		}
 	}
 
-	// Draw dotted recent trajectory (last ~3 m) before robot dot.
-	if len(m.trail) >= 2 {
-		for i := 1; i < len(m.trail); i++ {
-			x0, y0 := worldToPixel(m.trail[i-1].x, m.trail[i-1].y)
-			x1, y1 := worldToPixel(m.trail[i].x, m.trail[i].y)
-			drawDottedLine(img, x0, y0, x1, y1, clrTrail, 4, 3)
+	// Draw all robots' trails and match overlays before robot icons.
+	for _, rs := range m.robots {
+		if len(rs.trail) >= 2 {
+			for i := 1; i < len(rs.trail); i++ {
+				x0, y0 := worldToPixel(rs.trail[i-1].x, rs.trail[i-1].y)
+				x1, y1 := worldToPixel(rs.trail[i].x, rs.trail[i].y)
+				drawDottedLine(img, x0, y0, x1, y1, clrTrail, 4, 3)
+			}
+		}
+		if showMatches {
+			drawMatchOverlays(img, rs.seqMatchOverlays, worldToPixel, clrSeqMatch)
+			drawMatchOverlays(img, rs.lcMatchOverlays, worldToPixel, clrLCMatch)
 		}
 	}
 
-	// Draw robot position
-	rpx, rpy := worldToPixel(m.CurrentPose.X, m.CurrentPose.Y)
-	if showMatches {
-		drawMatchOverlays(img, m.seqMatchOverlays, worldToPixel, clrSeqMatch)
-		drawMatchOverlays(img, m.lcMatchOverlays, worldToPixel, clrLCMatch)
+	// Draw each robot's car icon.
+	for robotID, rs := range m.robots {
+		if m.activeSubmaps[robotID] == nil {
+			continue
+		}
+		rpx, rpy := worldToPixel(rs.CurrentPose.X, rs.CurrentPose.Y)
+		drawOrientedCar(img, rpx, rpy, rs.CurrentPose.Theta, scale)
 	}
-	drawOrientedCar(img, rpx, rpy, m.CurrentPose.Theta, scale)
 
 	return img
 }
@@ -406,13 +401,10 @@ func drawOrientedCar(img *image.RGBA, cx, cy int, theta, scale float64) {
 	rightFrontX := frontX - int(math.Round(float64(widPx)*sideX))
 	rightFrontY := frontY - int(math.Round(float64(widPx)*sideY))
 
-	// Car body outline
 	drawLine(img, leftRearX, leftRearY, leftFrontX, leftFrontY, clrRed, 2)
 	drawLine(img, rightRearX, rightRearY, rightFrontX, rightFrontY, clrRed, 2)
 	drawLine(img, leftRearX, leftRearY, rightRearX, rightRearY, clrRed, 2)
 	drawLine(img, leftFrontX, leftFrontY, rightFrontX, rightFrontY, clrRed, 2)
-
-	// Heading nose line
 	drawLine(img, cx, cy, frontX, frontY, clrRed, 2)
 }
 
