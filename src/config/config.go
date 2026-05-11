@@ -16,7 +16,7 @@ const IrSensorMaxDistance = 60 //cm
 // Camera mounting offset (mm) measured from robot center forward along robot body.
 // Increase if the camera is mounted ahead of the robot center so segments map
 // correctly in front of the robot.
-const CameraMountOffsetMM = 90
+const CameraMountOffsetMM = 30 //mm
 
 // GUI
 const GuiFrameRate = 5            //fps
